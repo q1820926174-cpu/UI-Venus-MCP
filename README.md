@@ -55,6 +55,10 @@
 ## Quick start
 
 ```bash
+# packaged (GitHub Release) — see docs/install/README.md for ZCode & clients:
+npm install github:q1820926174-cpu/UI-Venus-MCP
+
+# or from source:
 git clone https://github.com/q1820926174-cpu/UI-Venus-MCP.git
 cd UI-Venus-MCP
 pnpm install
