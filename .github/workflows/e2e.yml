@@ -98,6 +98,9 @@ jobs:
   venus-live:
     runs-on: ubuntu-latest
     timeout-minutes: 15
+    # The reference endpoint sits behind filtering that GitHub's runner
+    # IP ranges cannot reach — keep the job informative, not blocking.
+    continue-on-error: true
     steps:
       - uses: actions/checkout@v4
       - uses: pnpm/action-setup@v4

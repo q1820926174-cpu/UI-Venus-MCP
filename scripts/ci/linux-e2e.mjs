@@ -12,10 +12,11 @@
  */
 import { writeFileSync } from "node:fs";
 import { join, dirname } from "node:path";
-import { fileURLToPath } from "node:url";
+import { fileURLToPath, pathToFileURL } from "node:url";
+process.env.CUMCP_PROVIDER = process.env.CUMCP_PROVIDER ?? "mock"; // real-platform E2E needs no vision model
 
 const root = join(dirname(fileURLToPath(import.meta.url)), "..", "..");
-const { buildContext } = await import(join(root, "dist/context.js"));
+const { buildContext } = await import(pathToFileURL(join(root, "dist/context.js")).href);
 
 const report = { startedAt: new Date().toISOString(), display: process.env.DISPLAY };
 const log = (...a) => {
