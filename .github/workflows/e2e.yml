@@ -55,16 +55,16 @@ jobs:
       - name: X session + GUI tooling
         run: |
           sudo apt-get update
-          sudo apt-get install -y xvfb x11-apps x11-utils xdotool wmctrl imagemagick
+          sudo apt-get install -y xvfb x11-apps x11-utils xdotool wmctrl imagemagick openbox
       - run: pnpm install --frozen-lockfile
       - run: pnpm build
       - name: Run E2E under Xvfb
         run: |
           Xvfb :99 -screen 0 1280x800x24 &
           export DISPLAY=:99
+          openbox &                           # wmctrl/xdotool need an EWMH window manager
           sleep 2
           xclock -geometry 200x200+50+50 &    # real GUI target for wmctrl/capture
-          xterm -geometry 80x24+300+200 &     # (x11-apps may lack xterm; ignore)
           sleep 2
           node scripts/ci/linux-e2e.mjs
       - name: artifacts

@@ -43,20 +43,48 @@ const adapter = session.adapter;
 
 hard("open-capabilities", session.info.platform === "windows", adapter.getCapabilities());
 
-// ---- launch a classic Win32 app with a real EDIT control
+// ---- launch a classic Win32 app with a real EDIT control (poll for its window)
+let appLaunched = "charmap";
 await adapter.launchApp("charmap");
-await new Promise((r) => setTimeout(r, 4000));
+let windows = [];
+for (let i = 0; i < 10; i++) {
+  await new Promise((r) => setTimeout(r, 1000));
+  windows = await adapter.listWindows().catch(() => []);
+  if (windows.length > 0) break;
+}
+if (windows.length === 0) {
+  // retry with classic notepad (Windows Server runners keep the win32 one)
+  appLaunched = "notepad";
+  await adapter.launchApp("notepad").catch(() => {});
+  for (let i = 0; i < 8; i++) {
+    await new Promise((r) => setTimeout(r, 1000));
+    windows = await adapter.listWindows().catch(() => []);
+    if (windows.length > 0) break;
+  }
+}
+report.windows = windows.map((w) => w.title);
+hard("app-window-visible", windows.length > 0, { app: appLaunched, windows: report.windows.slice(0, 8) });
 
-// ---- tree: find an editable element by ROLE (locale-proof)
+// ---- tree: find an editable element by ROLE (locale-proof) with diagnostics
 const obs = await adapter.observe({ includeScreenshot: false, includeUITree: true, maxTreeDepth: 14 });
 let editable;
+let nodeCount = 0;
+const roleCensus = {};
 const walk = (n) => {
-  if (editable || !n) return;
-  if (n.editable || /edit|document/i.test(n.role ?? "")) { editable = n; return; }
+  if (!n) return;
+  nodeCount++;
+  roleCensus[n.role ?? "?"] = (roleCensus[n.role ?? "?"] ?? 0) + 1;
+  if (!editable && (n.editable || /edit|document/i.test(n.role ?? ""))) editable = n;
   for (const c of n.children ?? []) walk(c);
 };
 walk(obs.uiTree);
-hard("uia-tree-editable-found", !!editable, editable ? { role: editable.role, name: editable.name, id: editable.id } : "no editable element");
+report.tree = { nodeCount, roleCensus };
+if (!editable && nodeCount > 0) {
+  // fallback: descriptor-based locate through the adapter itself
+  const hit = await adapter.locate({ role: "edit" }).catch(() => null);
+  if (hit?.element) editable = hit.element;
+}
+hard("uia-tree-editable-found", !!editable, editable ? { role: editable.role, name: editable.name, id: editable.id, tree: nodeCount } : { tree: nodeCount, roleCensus });
 
 // ---- semantic setValue + read-back
 if (editable) {
@@ -94,7 +122,7 @@ if (caps.globalInput) {
   soft("sendinput-key", false, `globalInput=false (${(caps.notes ?? []).join("; ").slice(0, 80)})`);
 }
 
-await adapter.terminateApp("charmap").catch(() => {});
+await adapter.terminateApp(appLaunched).catch(() => {});
 report.finishedAt = new Date().toISOString();
 writeFileSync(join(root, "ci-win-report.json"), JSON.stringify(report, null, 2));
 log(report.failed ? `FAILED steps: ${report.failed}` : "ALL HARD STEPS PASSED");
