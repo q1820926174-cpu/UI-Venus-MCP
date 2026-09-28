@@ -65,6 +65,17 @@ if (windows.length === 0) {
 report.windows = windows.map((w) => w.title);
 hard("app-window-visible", windows.length > 0, { app: appLaunched, windows: report.windows.slice(0, 8) });
 
+// observe() scopes UIA to the FOREGROUND window — bring our app to front
+// first (title-bar click, the reliable method that also worked on 151)
+const target = windows.find((w) => /Character Map|字符映射表|Notepad|记事本/i.test(w.title));
+if (target?.bounds) {
+  const tx = Math.round(target.bounds.x + target.bounds.width / 2);
+  const ty = Math.round(target.bounds.y + 10);
+  const front = await adapter.executeAction(parseAction({ type: "click", point: { x: tx, y: ty, space: "physical" } }));
+  soft("bring-to-front", front.ok, { at: [tx, ty], error: front.error?.message });
+  await new Promise((r) => setTimeout(r, 800));
+}
+
 // ---- tree: find an editable element by ROLE (locale-proof) with diagnostics
 const obs = await adapter.observe({ includeScreenshot: false, includeUITree: true, maxTreeDepth: 14 });
 let editable;
@@ -114,7 +125,7 @@ try {
 // ---- input probes (capability-gated, soft — runner session dependent)
 const caps = adapter.getCapabilities();
 if (caps.globalInput) {
-  const key = await adapter.executeAction(parseAction({ type: "press", key: "escape" }));
+  const key = await adapter.executeAction(parseAction({ type: "press", key: "enter" }));
   soft("sendinput-key", key.ok, key.error?.message ?? "injected");
   const mv = await adapter.executeAction(parseAction({ type: "move", point: { x: 200, y: 200, space: "screenshot" } }));
   soft("sendinput-move", mv.ok, mv.error?.message ?? "moved");

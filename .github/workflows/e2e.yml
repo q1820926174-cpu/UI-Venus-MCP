@@ -62,10 +62,15 @@ jobs:
         run: |
           Xvfb :99 -screen 0 1280x800x24 &
           export DISPLAY=:99
-          openbox &                           # wmctrl/xdotool need an EWMH window manager
+          xsetroot -solid '#20304a' || true
+          openbox > /tmp/openbox.log 2>&1 &   # EWMH WM (wmctrl path)
           sleep 2
-          xclock -geometry 200x200+50+50 &    # real GUI target for wmctrl/capture
+          xclock -geometry 200x200+50+50 &    # real GUI target
           sleep 2
+          echo "--- diagnostics ---"
+          pgrep -a openbox || cat /tmp/openbox.log || true
+          pgrep -a xclock || echo "xclock NOT running"
+          DISPLAY=:99 wmctrl -l || true
           node scripts/ci/linux-e2e.mjs
       - name: artifacts
         if: always()

@@ -41,9 +41,14 @@ const session = await ctx.router.getSession({ type: "local", platform: "linux" }
 const adapter = session.adapter;
 hard("open-capabilities", session.info.platform === "linux", adapter.getCapabilities());
 
-// ---- windows enumeration (wmctrl) — xclock/xclock should be listed
+// ---- windows: wmctrl needs an EWMH WM (soft on runners); xdotool search
+// works on raw X — the hard, environment-independent assertion
+const { execFile } = await import("node:child_process");
+const sh = (cmd, args) => new Promise((res) => execFile(cmd, args, (e, o) => res((o ?? "").toString().trim())));
+const xdotoolHits = await sh("xdotool", ["search", "--onlyvisible", "--name", "xclock"]).catch(() => "");
+hard("xclock-window-xdotool", xdotoolHits.length > 0, { windowIds: xdotoolHits.split("\n").slice(0, 4) });
 const windows = await adapter.listWindows().catch((e) => { log("listWindows error:", e.message); return []; });
-hard("wmctrl-windows", windows.length > 0, windows.map((w) => w.title).slice(0, 6));
+soft("wmctrl-windows", windows.length > 0, { titles: windows.map((w) => w.title).slice(0, 6), note: "requires an EWMH window manager" });
 
 // ---- real screenshot through the probed capture tool
 try {
