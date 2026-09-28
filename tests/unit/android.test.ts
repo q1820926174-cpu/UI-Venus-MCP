@@ -533,7 +533,7 @@ describe("screenshot + screen geometry", () => {
     expect(shot.height).toBe(640);
     expect(shot.scale).toBeCloseTo(2.75); // 440dpi / 160
     expect(shot.orientation).toBe("portrait");
-    expect(shot.hash).toHaveLength(16);
+    expect(shot.hash).toHaveLength(64);
     expect(Buffer.from(shot.dataBase64, "base64").subarray(0, 2)).toEqual(Buffer.from([0x89, 0x50]));
     const cap = calls.find((c) => j(c).includes("screencap"));
     expect(cap?.opts?.binary).toBe(true);

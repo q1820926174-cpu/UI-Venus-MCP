@@ -33,6 +33,14 @@ export interface StepRecord {
   /** screenshot hash after this step (stagnation context for the model) */
   screenHash?: string;
   error?: string;
+  /**
+   * Official multi-turn protocol (UI-Venus Computer): the accepted
+   * assistant response ("<think>…</think>\n<action>…</action>") is appended
+   * to the conversation history verbatim; rejected responses never are.
+   */
+  acceptedResponse?: string;
+  /** the observation screenshot of this turn, for the last-N history images */
+  screenshot?: { dataBase64: string; format: "png" | "jpeg" };
 }
 
 export interface DecideRequest {
@@ -46,8 +54,14 @@ export interface DecideRequest {
 export interface DecideResult {
   thought?: string;
   action: Action;
+  /** open-loop Sequence children to execute after `action` (official Sequence) */
+  sequence?: Action[];
   /** model believes the goal is complete */
   isFinal: boolean;
+  /** CallUser → the task needs a human / is impossible */
+  needsUser?: boolean;
+  /** the accepted assistant response for history ("<think>…</think>\n<action>…</action>") */
+  acceptedResponse?: string;
   summary?: string;
   confidence?: number;
   raw: string;

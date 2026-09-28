@@ -30,7 +30,7 @@ describe.skipIf(!enabled)("macOS adapter — REAL E2E", () => {
     expect(shot.width).toBeGreaterThan(0);
     expect(shot.height).toBeGreaterThan(0);
     expect(shot.dataBase64.length).toBeGreaterThan(1000);
-    expect(shot.hash).toMatch(/^[0-9a-f]{16}$/);
+    expect(shot.hash).toMatch(/^[0-9a-f]{64}$/);
     console.log(`screenshot ${shot.width}x${shot.height} scale=${shot.scale} hash=${shot.hash}`);
   });
 

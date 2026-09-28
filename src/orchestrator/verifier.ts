@@ -94,7 +94,7 @@ export function checkStructuredAssertion(obs: Observation, a: StructuredAssertio
  * state in the tree. Returns null when not applicable.
  */
 export function heuristicVerify(obs: Observation, goal: string): VerifyResult | null {
-  if (!obs.uiTree) return null;
+  if (!obs.uiTree || !goal) return null;
   const lower = goal.toLowerCase();
   const wantsOff = /关闭|禁用|取消|disable|turn off|off\b/.test(lower);
   const wantsOn = /打开|开启|启用|enable|turn on|\bon\b/.test(lower);

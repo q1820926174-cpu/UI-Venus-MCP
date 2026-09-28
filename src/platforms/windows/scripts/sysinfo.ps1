@@ -1,4 +1,4 @@
-# Host/system info for honest capability probing (Windows).
+﻿# Host/system info for honest capability probing (Windows).
 #
 # Modes (via -Mode):
 #   info   -> JSON { psVersion, osVersion, is64Bit, integrity, integrityLabel,

@@ -76,6 +76,7 @@ describe("delegate task loop (spec §22)", () => {
   });
 
   it("max steps reached → FAILED honestly", async () => {
+    const no = { pass: false, source: "vision" as const, evidence: "not yet", confidence: 0.5, raw: "" };
     const { orch } = build({
       decide: [
         decideClickPoint({ x: 10, y: 10 }),
@@ -84,6 +85,7 @@ describe("delegate task loop (spec §22)", () => {
         decideClickPoint({ x: 40, y: 40 }),
         decideClickPoint({ x: 50, y: 50 }),
       ],
+      verify: [no, no, no, no, no, no, no, no],
     });
     const record = await orch.executeTask({ ...baseOpts("impossible task"), maxSteps: 3 });
     expect(record.outcome?.status).toBe("FAILED");
@@ -156,8 +158,10 @@ describe("vision fallback (spec §44)", () => {
     const router = new PlatformRouter();
     router.register({ platform: "mock" as never, factory: async () => adapter, probe: async () => ({ available: true }) });
     // model insists on clicking the same empty point forever; screen never changes
+    const no = { pass: false, source: "vision" as const, evidence: "not yet", confidence: 0.5, raw: "" };
     const provider = new MockProvider({
       decide: Array.from({ length: 20 }, () => decideClickPoint({ x: 700, y: 500 }, "try here")),
+      verify: Array.from({ length: 20 }, () => no),
     });
     const cfg = loadConfig();
     cfg.orchestrator.maxStagnation = 3;

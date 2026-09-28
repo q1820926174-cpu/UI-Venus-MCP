@@ -1,4 +1,4 @@
-# UIA tree walker — Windows UI Automation via .NET System.Windows.Automation.
+﻿# UIA tree walker — Windows UI Automation via .NET System.Windows.Automation.
 # Emits a flat, DFS-ordered JSON array of elements (depth field allows the
 # caller to rebuild the hierarchy). Bounds are PHYSICAL screen pixels.
 #

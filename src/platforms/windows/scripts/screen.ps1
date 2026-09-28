@@ -1,4 +1,4 @@
-# Screen capture + display info (Windows).
+﻿# Screen capture + display info (Windows).
 # Physical pixels throughout: SetProcessDPIAware() is called BEFORE any
 # Drawing/Forms use, so VirtualScreen / Screen.Bounds / CopyFromScreen all
 # agree on physical pixels (multi-monitor virtual screen origin may be negative).

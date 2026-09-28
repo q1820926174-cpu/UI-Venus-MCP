@@ -1,4 +1,4 @@
-# App lifecycle helpers (Windows): launch / kill / exists with verification.
+﻿# App lifecycle helpers (Windows): launch / kill / exists with verification.
 #
 # Actions (via -Action):
 #   launch  {app, args?[]}   Start-Process -PassThru -> { ok, pid, name }

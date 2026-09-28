@@ -43,6 +43,7 @@ import {
   normalizeRole,
   readUiTree,
   runUiaAction,
+  type UiaActionRequest,
   type UiaActionResultJson,
   type UiaElementJson,
   type UiaScope,
@@ -377,8 +378,12 @@ export class WindowsAdapter implements PlatformAdapter {
     }
   }
 
-  /** RuntimeId + owning scope of an adapter-produced element. */
-  private resolveUiaElement(el: { id: string; source?: string; attributes?: Record<string, unknown> }): { runtimeId: string; scope: UiaScope } {
+  /** RuntimeId + owning scope + match signature of an adapter-produced element. */
+  private resolveUiaElement(el: { id: string; source?: string; attributes?: Record<string, unknown>; role?: string; name?: string; bounds?: { x: number; y: number; width: number; height: number } }): {
+    runtimeId: string;
+    scope: UiaScope;
+    sig: UiaActionRequest["sig"];
+  } {
     if (el.source && el.source !== "uia" && !el.id.startsWith("uia:")) {
       throw new ComputerUseError("invalid_request", `Element ${el.id} does not belong to the Windows adapter (source=${el.source})`);
     }
@@ -387,7 +392,19 @@ export class WindowsAdapter implements PlatformAdapter {
         hint: "Use elements from observe()/locate() of this adapter, or fall back to point coordinates.",
       });
     }
-    return { runtimeId: el.id.slice(4), scope: scopeFromAttributes(el) };
+    const a = el.attributes ?? {};
+    return {
+      runtimeId: el.id.slice(4),
+      scope: scopeFromAttributes(el),
+      sig: {
+        pid: typeof a.pid === "number" ? a.pid : null,
+        role: el.role,
+        name: el.name ?? "",
+        autoId: typeof a.automationId === "string" ? a.automationId : null,
+        className: typeof a.className === "string" ? a.className : null,
+        bounds: el.bounds ?? null,
+      },
+    };
   }
 
   private pointFromAction(p: { x: number; y: number; space?: string }): { x: number; y: number } {
@@ -419,8 +436,8 @@ export class WindowsAdapter implements PlatformAdapter {
     if (t.element) {
       const c = this.elementCenter(t.element);
       if (c) return c;
-      const { runtimeId, scope } = this.resolveUiaElement(t.element);
-      const res = await tryUia({ runtimeId, action: "readBounds", ...scope });
+      const { runtimeId, scope, sig } = this.resolveUiaElement(t.element);
+      const res = await tryUia({ runtimeId, action: "readBounds", ...scope, sig });
       if (!(res instanceof ComputerUseError) && res.bounds) return centerOf(res.bounds);
     }
     throw new ComputerUseError("invalid_request", `${what}: no usable point or element bounds`);
@@ -435,8 +452,8 @@ export class WindowsAdapter implements PlatformAdapter {
         const el = "element" in action ? action.element : undefined;
         // Semantic first: UIA Invoke (single left click only).
         if (el && action.type === "click" && action.button !== "right" && el.source === "uia") {
-          const { runtimeId, scope } = this.resolveUiaElement(el);
-          const res = await tryUia({ runtimeId, action: "invoke", ...scope });
+          const { runtimeId, scope, sig } = this.resolveUiaElement(el);
+          const res = await tryUia({ runtimeId, action: "invoke", ...scope, sig });
           if (res instanceof ComputerUseError) {
             if (res.code !== "unsupported") throw res; // element vanished / blocked — honest failure
           } else {
@@ -451,8 +468,8 @@ export class WindowsAdapter implements PlatformAdapter {
           if (center) {
             pt = center;
           } else if (el && el.source === "uia") {
-            const { runtimeId, scope } = this.resolveUiaElement(el);
-            const res = await tryUia({ runtimeId, action: "readBounds", ...scope });
+            const { runtimeId, scope, sig } = this.resolveUiaElement(el);
+            const res = await tryUia({ runtimeId, action: "readBounds", ...scope, sig });
             if (res instanceof ComputerUseError || !res.bounds) {
               throw new ComputerUseError("invalid_request", "Element has no bounds and no point was given");
             }
@@ -500,12 +517,12 @@ export class WindowsAdapter implements PlatformAdapter {
 
       case "type": {
         if (action.element && action.element.source === "uia") {
-          const { runtimeId, scope } = this.resolveUiaElement(action.element);
-          const res = await tryUia({ runtimeId, action: "setValue", value: action.text, ...scope });
+          const { runtimeId, scope, sig } = this.resolveUiaElement(action.element);
+          const res = await tryUia({ runtimeId, action: "setValue", value: action.text, ...scope, sig });
           if (res instanceof ComputerUseError) {
             if (res.code !== "unsupported") throw res;
             // fallback: focus (UIA SetFocus, else click center) + real typing
-            const focus = await tryUia({ runtimeId, action: "setFocus", ...scope }, 10_000);
+            const focus = await tryUia({ runtimeId, action: "setFocus", ...scope, sig }, 10_000);
             if (focus instanceof ComputerUseError) {
               const c = this.elementCenter(action.element);
               if (c) {
@@ -525,15 +542,15 @@ export class WindowsAdapter implements PlatformAdapter {
       }
 
       case "set_value": {
-        const { runtimeId, scope } = this.resolveUiaElement(action.element);
-        const res = await runUiaAction({ runtimeId, action: "setValue", value: action.value, ...scope }, 15_000);
+        const { runtimeId, scope, sig } = this.resolveUiaElement(action.element);
+        const res = await runUiaAction({ runtimeId, action: "setValue", value: action.value, ...scope, sig }, 15_000);
         return { ok: true, method: "semantic", element: action.element, detail: `UIA ValuePattern.SetValue, read-back: "${res.valueAfter ?? ""}"` };
       }
 
       case "clear": {
         if (action.element && action.element.source === "uia") {
-          const { runtimeId, scope } = this.resolveUiaElement(action.element);
-          const res = await tryUia({ runtimeId, action: "setValue", value: "", ...scope });
+          const { runtimeId, scope, sig } = this.resolveUiaElement(action.element);
+          const res = await tryUia({ runtimeId, action: "setValue", value: "", ...scope, sig });
           if (!(res instanceof ComputerUseError)) {
             return { ok: true, method: "semantic", element: action.element, detail: `cleared via ValuePattern (read-back: "${res.valueAfter ?? ""}")` };
           }
@@ -560,16 +577,16 @@ export class WindowsAdapter implements PlatformAdapter {
       }
 
       case "select": {
-        const { runtimeId, scope } = this.resolveUiaElement(action.element);
+        const { runtimeId, scope, sig } = this.resolveUiaElement(action.element);
         if (action.value !== undefined) {
-          const res = await tryUia({ runtimeId, action: "setValue", value: action.value, ...scope });
+          const res = await tryUia({ runtimeId, action: "setValue", value: action.value, ...scope, sig });
           if (res instanceof ComputerUseError) {
             if (res.code !== "unsupported") throw res;
           } else {
             return { ok: true, method: "semantic", element: action.element, detail: "UIA ValuePattern.SetValue" };
           }
         }
-        const sel = await tryUia({ runtimeId, action: "select", ...scope });
+        const sel = await tryUia({ runtimeId, action: "select", ...scope, sig });
         if (sel instanceof ComputerUseError) {
           if (sel.code !== "unsupported") throw sel;
           // coordinate fallback: click the element
@@ -585,8 +602,8 @@ export class WindowsAdapter implements PlatformAdapter {
       }
 
       case "toggle": {
-        const { runtimeId, scope } = this.resolveUiaElement(action.element);
-        const res = await tryUia({ runtimeId, action: "toggle", toggleValue: action.value, ...scope });
+        const { runtimeId, scope, sig } = this.resolveUiaElement(action.element);
+        const res = await tryUia({ runtimeId, action: "toggle", toggleValue: action.value, ...scope, sig });
         if (res instanceof ComputerUseError) {
           if (res.code !== "unsupported") throw res;
           const c = this.elementCenter(action.element);
@@ -608,8 +625,8 @@ export class WindowsAdapter implements PlatformAdapter {
       }
 
       case "invoke": {
-        const { runtimeId, scope } = this.resolveUiaElement(action.element);
-        const res = await tryUia({ runtimeId, action: "invoke", ...scope });
+        const { runtimeId, scope, sig } = this.resolveUiaElement(action.element);
+        const res = await tryUia({ runtimeId, action: "invoke", ...scope, sig });
         if (res instanceof ComputerUseError) {
           if (res.code !== "unsupported") throw res;
           const c = this.elementCenter(action.element);
@@ -736,7 +753,19 @@ export class WindowsAdapter implements PlatformAdapter {
     if (!win) {
       throw new ComputerUseError("element_not_found", `no matching window (app=${options.app ?? "-"}, title=${options.windowTitle ?? "-"})`);
     }
-    await runUiaAction({ runtimeId: win.runtimeId, action: "setFocus", desktopRoot: true }, 10_000);
+    await runUiaAction({
+      runtimeId: win.runtimeId,
+      action: "setFocus",
+      desktopRoot: true,
+      sig: {
+        pid: win.pid ?? null,
+        role: win.role,
+        name: win.name,
+        autoId: win.autoId ?? null,
+        className: win.className ?? null,
+        bounds: win.bounds,
+      },
+    }, 10_000);
     // honest verification: is the foreground window now the target's?
     await new Promise((r) => setTimeout(r, 250));
     const fg = await getForegroundWindow(this.screen ?? undefined).catch(() => null);

@@ -1,4 +1,4 @@
-# UIA semantic action by RuntimeId — invoke/toggle/setValue/select/focus/readState.
+﻿# UIA semantic action by RuntimeId — invoke/toggle/setValue/select/focus/readState.
 # Re-walks the same scope used by uia-tree.ps1 and matches the joined RuntimeId,
 # because UIA offers no "find by runtime id" API.
 #
@@ -37,6 +37,11 @@ if (-not $wantRid) {
     [Console]::Error.WriteLine("UIA_ERROR: runtimeId is required")
     exit 5
 }
+# Optional element signature for matching when the RuntimeId is not stable
+# across client processes (observed for non-hwnd bridged elements such as
+# the desktop root): { pid, role, name, autoId, className, bounds }
+$sig = $null
+if ($opts.PSObject.Properties["sig"] -and $null -ne $opts.sig) { $sig = $opts.sig }
 $action = "readState"
 if ($opts.PSObject.Properties["action"] -and $opts.action) { $action = [string]$opts.action }
 $value = ""
@@ -52,13 +57,52 @@ $desktopRoot = $false
 if ($opts.PSObject.Properties["desktopRoot"] -and $opts.desktopRoot) { $desktopRoot = [bool]$opts.desktopRoot }
 
 $script:found = $null
+$script:matchedBy = ""
+
+function Test-Signature($el) {
+    if ($null -eq $sig) { return $false }
+    $role = ""
+    try { $role = $el.Current.ControlType.ProgrammaticName } catch { return $false }
+    $role = ($role -replace "^ControlType\.", "").ToLowerInvariant()
+    # normalize BOTH sides: "ControlType.Pane" and "pane" must compare equal
+    $wantRole = (([string]$sig.role) -replace "^ControlType\.", "").ToLowerInvariant()
+    if ($role -ne $wantRole) { return $false }
+    $name = ""
+    try { $name = [string]$el.Current.Name } catch {}
+    if ($name -ne [string]$sig.name) { return $false }
+    $autoId = ""
+    try { $autoId = [string]$el.Current.AutomationId } catch {}
+    if ($autoId -ne [string]$sig.autoId) { return $false }
+    $elmPid = 0
+    try { $elmPid = $el.Current.ProcessId } catch {}
+    if ($sig.PSObject.Properties["pid"] -and $sig.pid -and [int]$sig.pid -ne $elmPid) { return $false }
+    try {
+        $r = $el.Current.BoundingRectangle
+        if ($sig.PSObject.Properties["bounds"] -and $sig.bounds -and -not $r.IsEmpty) {
+            if ([Math]::Abs($r.X - [double]$sig.bounds.x) -gt 2) { return $false }
+            if ([Math]::Abs($r.Y - [double]$sig.bounds.y) -gt 2) { return $false }
+            if ([Math]::Abs($r.Width - [double]$sig.bounds.width) -gt 2) { return $false }
+            if ([Math]::Abs($r.Height - [double]$sig.bounds.height) -gt 2) { return $false }
+        }
+    } catch {}
+    return $true
+}
 
 function Try-Match([System.Windows.Automation.AutomationElement]$el) {
     if ($script:found -ne $null) { return $true }
     try {
         $rid = (@($el.GetRuntimeId()) -join ",")
-        if ($rid -eq $wantRid) { $script:found = $el; return $true }
+        if ($rid -eq $wantRid) {
+            $script:found = $el
+            $script:matchedBy = "runtimeId"
+            return $true
+        }
     } catch {}
+    if (Test-Signature $el) {
+        $script:found = $el
+        $script:matchedBy = "signature"
+        return $true
+    }
     return $false
 }
 
@@ -117,6 +161,7 @@ function Get-StateJson($el) {
     return @{
         ok        = $true
         runtimeId = $wantRid
+        matchedBy = $script:matchedBy
         name      = $name
         value     = $val
         enabled   = $enabled
@@ -173,7 +218,7 @@ try {
         if ($script:found -ne $null) { break }
     }
     if ($script:found -eq $null) {
-        [Console]::Error.WriteLine("ELEMENT_NOT_FOUND: runtimeId $wantRid not present anymore (UI stale — re-observe)")
+        [Console]::Error.WriteLine("ELEMENT_NOT_FOUND: runtimeId $wantRid not present anymore (UI stale, re-observe)")
         exit 3
     }
 
@@ -186,7 +231,7 @@ try {
         }
         "readBounds" {
             $r = $el.Current.BoundingRectangle
-            $out = @{ ok = $true; runtimeId = $wantRid; action = "readBounds" }
+            $out = @{ ok = $true; runtimeId = $wantRid; action = "readBounds"; matchedBy = $script:matchedBy }
             if (-not $r.IsEmpty) {
                 $out.bounds = @{ x = [int][Math]::Round($r.X); y = [int][Math]::Round($r.Y);
                                  width = [int][Math]::Round($r.Width); height = [int][Math]::Round($r.Height) }
@@ -262,7 +307,8 @@ try {
             } catch {}
             $out = (Get-StateJson $el)
             $out.valueAfter = $after
-            if ($after -ne $value) {
+            # single-line EDIT controls report a trailing \r — compare trimmed
+            if ("$after".Trim() -ne "$value".Trim()) {
                 [Console]::Error.WriteLine("VERIFY_FAILED: value read back '$after' != requested '$value'")
                 exit 6
             }

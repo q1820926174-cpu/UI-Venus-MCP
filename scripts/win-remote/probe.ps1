@@ -1,4 +1,4 @@
-# =====================================================================
+﻿# =====================================================================
 # win-remote probe — self-contained acceptance bundle for the
 # Cross-Platform Computer-Use MCP Windows adapter.
 #

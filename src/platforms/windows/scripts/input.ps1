@@ -1,4 +1,4 @@
-# SendInput-based input injection — mouse + keyboard (Windows).
+﻿# SendInput-based input injection — mouse + keyboard (Windows).
 #
 # Modes (via -Mode):
 #   move    {x,y}                          physical pixels

@@ -2,10 +2,11 @@ import { describe, expect, it } from "vitest";
 import {
   groundingPrompt,
   parseGroundingPoint,
-  parseAgentResponse,
-  parseActionLine,
+  parseOfficialResponse,
+  parseActionCall,
   parseVerifyAnswer,
-  agentSystemPrompt,
+  computerSystemPrompt,
+  normalizedPoint999,
 } from "../../src/providers/ui-venus/prompts.js";
 
 describe("UI-Venus prompts & parsing", () => {
@@ -39,59 +40,79 @@ describe("UI-Venus prompts & parsing", () => {
   });
 });
 
-describe("agent decision parsing", () => {
-  it("parses UI-TARS style Thought/Action", () => {
-    const r = parseAgentResponse("Thought: 需要点击关闭按钮\nAction: click(677, 685)");
-    expect(r?.thought).toContain("关闭");
-    expect(r?.actionLine).toBe("click(677, 685)");
+describe("official Computer action protocol", () => {
+  it("parses <think>/<action> blocks", () => {
+    const r = parseOfficialResponse(
+      "<think>需要点击关闭按钮</think>\n<action>Click(box=(677, 685))</action>",
+    );
+    expect(r.thought).toContain("关闭");
+    expect(r.actionText).toBe("Click(box=(677, 685))");
   });
 
-  it("accepts a bare function call without Thought", () => {
-    expect(parseAgentResponse("finished()")?.actionLine).toBe("finished()");
+  it("uses reasoning_content as thought when no <think> tag", () => {
+    const r = parseOfficialResponse("<action>Wait()</action>", "step-by-step reasoning");
+    expect(r.thought).toBe("step-by-step reasoning");
+    expect(r.actionText).toBe("Wait()");
   });
 
-  it("maps action kinds", () => {
-    expect(parseActionLine("click(500,500)")).toEqual({ kind: "click", x: 500, y: 500 });
-    expect(parseActionLine("left_double(10,20)")).toEqual({ kind: "double_click", x: 10, y: 20 });
-    expect(parseActionLine("right_single(1,2)")).toEqual({ kind: "right_click", x: 1, y: 2 });
-    expect(parseActionLine("drag(0,0,100,100)")).toEqual({ kind: "drag", from: { x: 0, y: 0 }, to: { x: 100, y: 100 } });
-    expect(parseActionLine('type("hello world")')).toEqual({ kind: "type", text: "hello world" });
-    expect(parseActionLine("hotkey(ctrl+c)")).toEqual({ kind: "hotkey", keys: ["ctrl", "c"] });
-    expect(parseActionLine("hotkey(command+space)")).toEqual({ kind: "hotkey", keys: ["command", "space"] });
-    expect(parseActionLine("scroll(500,500,down,3)")).toEqual({ kind: "scroll", x: 500, y: 500, direction: "down", magnitude: 3 });
-    expect(parseActionLine("wait()")).toEqual({ kind: "wait" });
-    expect(parseActionLine("finished()")).toEqual({ kind: "finished" });
-    expect(parseActionLine('fail("not found")')).toEqual({ kind: "fail", reason: "not found" });
+  it("accepts a bare action without tags", () => {
+    expect(parseOfficialResponse("Finished()").actionText).toBe("Finished()");
   });
 
-  it("survives code fences and trailing prose in the action line", () => {
-    expect(parseActionLine("```click(1,2)```")).toEqual({ kind: "click", x: 1, y: 2 });
+  it("rejects malformed/multiple action blocks", () => {
+    expect(() => parseOfficialResponse("<action>A()</action><action>B()</action>")).toThrow(/exactly one/);
+    expect(() => parseOfficialResponse("<action A()</action>")).toThrow(/malformed/);
   });
 
-  it("parses NAMED arguments (observed live from UI-Venus-2-9B-W8A8)", () => {
-    expect(parseActionLine("click(x=676, y=683)")).toEqual({ kind: "click", x: 676, y: 683 });
-    expect(parseActionLine("click(x = 500,y = 500)")).toEqual({ kind: "click", x: 500, y: 500 });
-    expect(parseActionLine('type(content="你好世界")')).toEqual({ kind: "type", text: "你好世界" });
-    expect(parseActionLine("hotkey(key=ctrl+c)")).toEqual({ kind: "hotkey", keys: ["ctrl", "c"] });
-    expect(parseActionLine('scroll(x=500, y=500, direction="down", magnitude=3)')).toEqual({
-      kind: "scroll", x: 500, y: 500, direction: "down", magnitude: 3,
-    });
-    expect(parseActionLine("drag(x1=0, y1=0, x2=100, y2=100)")).toEqual({
-      kind: "drag", from: { x: 0, y: 0 }, to: { x: 100, y: 100 },
-    });
-    expect(parseActionLine('fail(reason="not found")')).toEqual({ kind: "fail", reason: "not found" });
+  it("parses the full official action grammar", () => {
+    expect(parseActionCall("Click(box=(500, 500))").args.box).toEqual([500, 500]);
+    expect(parseActionCall("Click()").args).toEqual({});
+    expect(parseActionCall("DoubleClick(box=(10, 20))").name).toBe("DoubleClick");
+    expect(parseActionCall("RightClick(box=(1, 2))").name).toBe("RightClick");
+    expect(parseActionCall("Hover(box=(5, 5))").name).toBe("Hover");
+    expect(parseActionCall("Drag(end=(100, 100), start=(0, 0))").args.end).toEqual([100, 100]);
+    expect(parseActionCall("Swipe(amount=-5, axis='vertical')").args.amount).toBe(-5);
+    expect(parseActionCall("Type(content='hello world')").args.content).toBe("hello world");
+    expect(parseActionCall("Type(content='query\\n')").args.content).toBe("query\n");
+    expect(parseActionCall("Hotkey(keys=['ctrl', 'c'])").args.keys).toEqual(["ctrl", "c"]);
+    expect(parseActionCall("Hotkey(keys=['down'], repeat=5)").args.repeat).toBe(5);
+    expect(parseActionCall("Wait()").name).toBe("Wait");
+    expect(parseActionCall("Finished(content='done')").name).toBe("Finished");
+    expect(parseActionCall("CallUser(content='need help')").name).toBe("CallUser");
   });
 
-  it("returns null on malformed lines", () => {
-    expect(parseActionLine("clickx(1,2)")).toBeNull();
-    expect(parseActionLine("click()")).toBeNull();
+  it("parses Sequence with children", () => {
+    const call = parseActionCall("Sequence(actions=[Click(box=(1, 2)), Hotkey(keys=['ctrl', 's'])])");
+    expect(call.name).toBe("Sequence");
+    expect(call.children).toHaveLength(2);
+    expect(call.children![0]!.name).toBe("Click");
   });
 
-  it("system prompt declares normalized coordinates and finished()", () => {
-    const p = agentSystemPrompt();
-    expect(p).toContain("[0,1000]");
-    expect(p).toContain("finished()");
-    expect(p).toContain("hotkey(");
+  it("rejects unsafe/invalid actions like the official AST parser", () => {
+    expect(() => parseActionCall("click(1, 2)")).toThrow(); // positional args not allowed
+    expect(() => parseActionCall("Import('os').system('rm -rf /')")).toThrow();
+    expect(() => parseActionCall("__import__('os')")).toThrow();
+    expect(() => parseActionCall("Sequence(actions=[Click(box=(1, 2))])")).toThrow(/2-32/); // too few children
+    expect(() => parseActionCall("Teleport(box=(1, 2))")).toThrow(/unsupported/);
+    expect(() => parseActionCall("Click(box=(1, 2, 3))")).toThrow(/two-number tuple/);
+    expect(() => parseActionCall("Click(box=(1000, 500))")).toThrow(/\[0, 999\]/);
+    expect(() => parseActionCall("Swipe(amount=1, axis='diagonal')")).toThrow(/axis/);
+  });
+
+  it("official /999 coordinate conversion, clamped to image bounds", () => {
+    expect(normalizedPoint999([0, 0], 1920, 1080)).toEqual({ x: 0, y: 0 });
+    expect(normalizedPoint999([999, 999], 1920, 1080)).toEqual({ x: 1919, y: 1079 });
+    // 677/999 * 1920 = 1301.1 → 1301 (the calibrated CLOSE button)
+    expect(normalizedPoint999([677, 685], 1920, 1080).x).toBe(1301);
+    expect(normalizedPoint999([685, 685], 1920, 1080).y).toBeCloseTo(740, 0);
+  });
+
+  it("official system prompt carries the task and action space", () => {
+    const p = computerSystemPrompt("打开设置", "(not provided)");
+    expect(p).toContain("打开设置");
+    expect(p).toContain("Click(box=(x1, y1))");
+    expect(p).toContain("Finished");
+    expect(p).toContain("<think>");
   });
 });
 

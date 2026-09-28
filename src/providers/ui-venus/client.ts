@@ -16,26 +16,31 @@
 import type { VenusProviderConfig } from "../../config.js";
 import { ComputerUseError } from "../../core/errors.js";
 
+export type ChatContentPart =
+  | { type: "text"; text: string }
+  | {
+      type: "image_url";
+      min_pixels?: number;
+      max_pixels?: number;
+      image_url: { url: string };
+    };
+
 export interface ChatMessage {
   role: "system" | "user" | "assistant";
-  content:
-    | string
-    | Array<
-        | { type: "text"; text: string }
-        | {
-            type: "image_url";
-            min_pixels?: number;
-            max_pixels?: number;
-            image_url: { url: string };
-          }
-      >;
+  content: string | ChatContentPart[];
+}
+
+export interface ChatResult {
+  content: string;
+  /** vLLM reasoning_content when the reasoning parser is enabled */
+  reasoning: string;
 }
 
 export interface ChatOptions {
   maxTokens?: number;
   temperature?: number;
-  /** extra raw messages (few-shot) appended before the user turn */
-  messages?: ChatMessage[];
+  topP?: number;
+  enableThinking?: boolean;
   retries?: number;
 }
 
@@ -60,36 +65,24 @@ export class VenusClient {
   }
 
   /**
-   * One vision chat turn. Returns the assistant text content.
+   * Generic chat turn (official protocol shape: system + alternating
+   * user/assistant history + current screenshot). Returns assistant text
+   * plus the separate reasoning field when the server exposes one.
    * Retries transient failures (network/5xx/429) with linear backoff.
    */
-  async chatWithImage(
-    imageDataBase64: string,
-    imageMimeType: "image/png" | "image/jpeg",
-    prompt: string,
-    opts: ChatOptions = {},
-  ): Promise<string> {
+  async chat(messages: ChatMessage[], opts: ChatOptions = {}): Promise<ChatResult> {
     this.assertSecureUrl();
-    const body = {
+    const enableThinking = opts.enableThinking ?? this.cfg.enableThinking;
+    const body: Record<string, unknown> = {
       model: this.cfg.model,
+      messages,
       temperature: opts.temperature ?? this.cfg.temperature,
+      top_p: opts.topP ?? 0.7,
       max_tokens: opts.maxTokens ?? 1024,
-      chat_template_kwargs: { enable_thinking: this.cfg.enableThinking },
-      messages: [
-        ...(opts.messages ?? []),
-        {
-          role: "user",
-          content: [
-            {
-              type: "image_url",
-              min_pixels: this.cfg.minPixels,
-              max_pixels: this.cfg.maxPixels,
-              image_url: { url: `data:${imageMimeType};base64,${imageDataBase64}` },
-            },
-            { type: "text", text: prompt },
-          ],
-        },
-      ],
+      // The W8A8 deployment thinks BY DEFAULT; non-thinking callers must
+      // explicitly disable it (official usage passes this field on every
+      // grounding request), so it is always sent, never omitted.
+      chat_template_kwargs: { enable_thinking: enableThinking },
     };
 
     const retries = opts.retries ?? 2;
@@ -118,13 +111,22 @@ export class VenusClient {
           throw lastError;
         }
         const json = (await res.json()) as {
-          choices?: { message?: { content?: string | null } }[];
+          choices?: { message?: { content?: string | null; reasoning_content?: string | null; reasoning?: string | null } }[];
         };
-        const content = json.choices?.[0]?.message?.content;
-        if (typeof content !== "string") {
+        const message = json.choices?.[0]?.message;
+        let content = message?.content ?? "";
+        const reasoningRaw = message?.reasoning_content ?? message?.reasoning ?? "";
+        const reasoning = typeof reasoningRaw === "string" ? reasoningRaw : "";
+        // vLLM reasoning-parser: a thinking response can arrive with an
+        // EMPTY content and everything in reasoning_content (official
+        // call_model prepends reasoning when content lacks <think>).
+        if (!content.trim() && reasoning.trim()) {
+          content = `<think>\n${reasoning.trim()}\n</think>\n`;
+        }
+        if (!content.trim()) {
           throw new ComputerUseError("provider_error", "UI-Venus returned no content", { details: json as never });
         }
-        return content;
+        return { content, reasoning };
       } catch (e) {
         lastError = e;
         const isAbort = e instanceof Error && e.name === "AbortError";
@@ -144,6 +146,33 @@ export class VenusClient {
     throw lastError instanceof ComputerUseError
       ? lastError
       : new ComputerUseError("provider_error", String(lastError));
+  }
+
+  /** Convenience: single image + prompt turn (grounding / verify / inspect). */
+  async chatWithImage(
+    imageDataBase64: string,
+    imageMimeType: "image/png" | "image/jpeg",
+    prompt: string,
+    opts: ChatOptions = {},
+  ): Promise<string> {
+    const result = await this.chat(
+      [
+        {
+          role: "user",
+          content: [
+            {
+              type: "image_url",
+              min_pixels: this.cfg.minPixels,
+              max_pixels: this.cfg.maxPixels,
+              image_url: { url: `data:${imageMimeType};base64,${imageDataBase64}` },
+            },
+            { type: "text", text: prompt },
+          ],
+        },
+      ],
+      opts,
+    );
+    return result.content;
   }
 }
 

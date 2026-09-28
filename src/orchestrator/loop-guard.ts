@@ -26,7 +26,7 @@ export interface StagnationVerdict {
 export interface LoopGuardOptions {
   /** consecutive identical (action+element+screen) steps tolerated */
   maxStagnation?: number;
-  /** hamming distance below which two screens count as "same" */
+  /** hamming distance (of the 256-bit aHash) below which two screens count as "same" */
   sameScreenDistance?: number;
   /** max consecutive identical failed actions */
   maxRepeatedFailures?: number;
@@ -38,7 +38,7 @@ export class LoopGuard {
 
   constructor(private readonly opts: Required<LoopGuardOptions> = {
     maxStagnation: 3,
-    sameScreenDistance: 4,
+    sameScreenDistance: 16,
     maxRepeatedFailures: 3,
   }) {}
 
@@ -67,7 +67,11 @@ export class LoopGuard {
       else break;
     }
     if (streak >= this.opts.maxStagnation) {
-      reasons.push(`identical action/element/screen repeated ${streak}×`);
+      reasons.push(
+        last.ok
+          ? `identical action/element/screen repeated ${streak}× with no screen change`
+          : `identical action/element/screen repeated ${streak}×`,
+      );
     }
 
     // same screen without any state change (even with different actions)
@@ -78,8 +82,8 @@ export class LoopGuard {
         recent.every(
           (h) => h.screenHash !== undefined && hammingDistance(h.screenHash, last.screenHash!) <= this.opts.sameScreenDistance,
         );
-      if (allSameScreen && !last.ok) {
-        reasons.push(`screen unchanged across last ${recent.length} steps and last action failed`);
+      if (allSameScreen) {
+        reasons.push(`screen unchanged across last ${recent.length} steps${last.ok ? "" : " and last action failed"}`);
       }
     }
 

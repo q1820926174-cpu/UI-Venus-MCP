@@ -248,17 +248,29 @@ export async function readUiTree(opts: UiaTreeOptions = {}): Promise<UiaElementJ
   return parsePsJson<UiaElementJson[]>("uia-tree.ps1", r);
 }
 
+export interface UiaElementSignature {
+  pid?: number | null;
+  role?: string;
+  name?: string;
+  autoId?: string | null;
+  className?: string | null;
+  bounds?: UiaBounds | null;
+}
+
 export interface UiaActionRequest extends UiaScope {
   runtimeId: string;
   action: "invoke" | "toggle" | "setValue" | "select" | "expand" | "collapse" | "setFocus" | "readState" | "readBounds";
   value?: string;
   toggleValue?: boolean;
+  /** fallback element signature — UIA RuntimeIds of non-hwnd elements can differ across client processes */
+  sig?: UiaElementSignature;
 }
 
 export interface UiaActionResultJson {
   ok: boolean;
   runtimeId: string;
   action: string;
+  matchedBy?: "runtimeId" | "signature";
   name?: string;
   value?: string;
   valueAfter?: string;
@@ -275,7 +287,8 @@ export interface UiaActionResultJson {
   bounds?: UiaBounds | null;
 }
 
-/** Run uia-action.ps1 (semantic UIA pattern matched by RuntimeId). */
+/** Run uia-action.ps1 (semantic UIA pattern matched by RuntimeId, with a
+ *  signature fallback for cross-process RuntimeId instability). */
 export async function runUiaAction(req: UiaActionRequest, timeoutMs = 20_000): Promise<UiaActionResultJson> {
   const r = await runPowerShell(
     "uia-action.ps1",
@@ -284,6 +297,7 @@ export async function runUiaAction(req: UiaActionRequest, timeoutMs = 20_000): P
       action: req.action,
       value: req.value,
       toggleValue: req.toggleValue,
+      sig: req.sig,
       pid: req.pid,
       processName: req.processName,
       windowTitle: req.windowTitle,

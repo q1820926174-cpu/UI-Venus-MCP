@@ -33,12 +33,14 @@ export async function mouseMove(x: number, y: number): Promise<void> {
 }
 
 function mouseEventScript(type: string, x: number, y: number, clickState: number, button: number): string {
-  return `
+  // Block-scoped: several event scripts are concatenated into one JXA run,
+  // so `const` declarations must not collide.
+  return `{
     const p = $.CGPointMake(${x}, ${y});
     const e = $.CGEventCreateMouseEvent($(), $.${type}, p, ${button});
     $.CGEventSetIntegerValueField(e, $.kCGMouseEventClickState, ${clickState});
     $.CGEventPost($.kCGHIDEventTap, e);
-  `;
+  }`;
 }
 
 export async function mouseClick(x: number, y: number, button: "left" | "right" = "left", clicks = 1): Promise<void> {
@@ -110,7 +112,7 @@ export const KEY_CODES: Record<string, number> = {
 
 export const MODIFIER_FLAGS: Record<string, number> = {
   shift: 0x02, control: 0x04, ctrl: 0x04, option: 0x08, alt: 0x08, command: 0x10, cmd: 0x10,
-  meta: 0x10, fn: 0x800000,
+  meta: 0x10, super: 0x10, win: 0x10, fn: 0x800000,
 };
 
 export async function pressKey(key: string, modifiers: string[] = []): Promise<void> {

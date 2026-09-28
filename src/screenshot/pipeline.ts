@@ -83,23 +83,23 @@ export function crop(img: DecodedImage, region: { x: number; y: number; width: n
   return { width: w, height: h, data: out };
 }
 
-/** 64-bit average hash, hex string. Hamming distance < 6 ≈ same screen. */
+/** 256-bit average hash (16×16), hex string. Hamming distance ≈ same screen. */
 export function averageHash(img: DecodedImage): string {
-  const small = downscaleGrayscale(img, 8, 8);
+  const small = downscaleGrayscale(img, 16, 16);
   const mean = small.reduce((a, b) => a + b, 0) / small.length;
   let hash = "";
-  for (let byte = 0; byte < 8; byte++) {
+  for (let byte = 0; byte < 64; byte++) {
     let v = 0;
-    for (let bit = 0; bit < 8; bit++) {
-      v = (v << 1) | (small[byte * 8 + bit]! > mean ? 1 : 0);
+    for (let bit = 0; bit < 4; bit++) {
+      v = (v << 1) | (small[byte * 4 + bit]! > mean ? 1 : 0);
     }
-    hash += v.toString(16).padStart(2, "0");
+    hash += v.toString(16).padStart(1, "0");
   }
   return hash;
 }
 
 export function hammingDistance(a: string, b: string): number {
-  if (a.length !== b.length) return 64;
+  if (a.length !== b.length) return a.length * 4;
   let dist = 0;
   for (let i = 0; i < a.length; i++) {
     let x = (parseInt(a[i]!, 16) ^ parseInt(b[i]!, 16)) & 0xf;

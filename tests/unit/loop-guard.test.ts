@@ -1,14 +1,28 @@
 import { describe, expect, it } from "vitest";
 import { LoopGuard } from "../../src/orchestrator/loop-guard.js";
 
+/** flip n hex digits (4 bits each) of a hash for controlled hamming distances. */
+function flip(hash: string, bits: number): string {
+  const digits = Math.ceil(bits / 4);
+  const arr = [...hash];
+  for (let i = 0; i < digits && i < arr.length; i++) {
+    const v = parseInt(arr[i]!, 16);
+    arr[i] = ((v ^ 0xf) & 0xf).toString(16);
+  }
+  return arr.join("");
+}
+
 describe("loop guard (spec §32)", () => {
   const guard = () => new LoopGuard({ maxStagnation: 3, sameScreenDistance: 4, maxRepeatedFailures: 3 });
 
   it("passes healthy varied steps", () => {
     const g = guard();
-    g.record({ index: 1, actionType: "click", actionSummary: "click a", elementId: "a", screenHash: "ff", ok: true });
-    g.record({ index: 2, actionType: "type", actionSummary: 'type "x"', screenHash: "0f", ok: true });
-    g.record({ index: 3, actionType: "click", actionSummary: "click b", elementId: "b", screenHash: "33", ok: true });
+    const h1 = "a".repeat(64);
+    const h2 = flip(h1, 80); // far apart (80 bits of 256)
+    const h3 = flip(h1, 160);
+    g.record({ index: 1, actionType: "click", actionSummary: "click a", elementId: "a", screenHash: h1, ok: true });
+    g.record({ index: 2, actionType: "type", actionSummary: 'type "x"', screenHash: h2, ok: true });
+    g.record({ index: 3, actionType: "click", actionSummary: "click b", elementId: "b", screenHash: h3, ok: true });
     expect(g.evaluate().stagnant).toBe(false);
   });
 
@@ -38,11 +52,12 @@ describe("loop guard (spec §32)", () => {
 
   it("perceptual hash distance defines same-screen", () => {
     const g = guard();
+    const base = "5".repeat(64);
     // hashes differing by 1 bit → same screen
-    g.record({ index: 1, actionType: "click", actionSummary: "click a", elementId: "a", screenHash: "000000000000000f", ok: true });
-    g.record({ index: 2, actionType: "click", actionSummary: "click a", elementId: "a", screenHash: "0000000000000000", ok: true });
-    g.record({ index: 3, actionType: "click", actionSummary: "click a", elementId: "a", screenHash: "ffffffffffffffff", ok: true });
-    // third hash is completely different → breaks the streak
+    g.record({ index: 1, actionType: "click", actionSummary: "click a", elementId: "a", screenHash: base, ok: true });
+    g.record({ index: 2, actionType: "click", actionSummary: "click a", elementId: "a", screenHash: flip(base, 1), ok: true });
+    g.record({ index: 3, actionType: "click", actionSummary: "click a", elementId: "a", screenHash: flip(base, 200), ok: true });
+    // third hash is far away → breaks the identical streak
     expect(g.evaluate().stagnant).toBe(false);
   });
 });

@@ -63,6 +63,7 @@ describe("VenusClient", () => {
     expect(body.model).toBe("UI-Venus-2-9B-W8A8");
     expect(body.temperature).toBe(0);
     expect(body.max_tokens).toBe(32);
+    // non-thinking calls must explicitly disable thinking (server default is ON)
     expect(body.chat_template_kwargs).toEqual({ enable_thinking: false });
     const content = body.messages[0].content;
     expect(content[0].type).toBe("image_url");
@@ -122,30 +123,106 @@ describe("UiVenusProvider", () => {
     expect(result.source).toBe("not_found");
   });
 
-  it("maps finished() to a finish action (isFinal)", async () => {
+  it("OFFICIAL protocol: parses <think>/<action> Click and converts 0-999 → pixels", async () => {
     vi.stubGlobal(
       "fetch",
-      vi.fn(async () => okResponse("Thought: everything is done\nAction: finished()")),
-    );
-    const provider = new UiVenusProvider(cfg());
-    const decision = await provider.decideNextAction({ goal: "g", observation: obs(), history: [] });
-    expect(decision.isFinal).toBe(true);
-    expect(decision.action.type).toBe("finish");
-  });
-
-  it("maps click coordinates through to screenshot space", async () => {
-    vi.stubGlobal(
-      "fetch",
-      vi.fn(async () => okResponse("Thought: t\nAction: click(500, 500)")),
+      vi.fn(async () => okResponse("<think>click the button</think>\n<action>Click(box=(500, 500))</action>")),
     );
     const provider = new UiVenusProvider(cfg());
     const decision = await provider.decideNextAction({ goal: "g", observation: obs(), history: [] });
     expect(decision.action.type).toBe("click");
+    expect(decision.thought).toBe("click the button");
+    // official /999 rule: int(500 * 800 / 999) = 400, int(500*600/999) = 300
     if (decision.action.type === "click") {
-      expect(decision.action.point!.x).toBeCloseTo(400, 1);
-      expect(decision.action.point!.y).toBeCloseTo(300, 1);
+      expect(decision.action.point!.x).toBe(400);
+      expect(decision.action.point!.y).toBe(300);
       expect(decision.action.point!.space).toBe("screenshot");
     }
+    expect(decision.acceptedResponse).toContain("<think>");
+    expect(decision.acceptedResponse).toContain("<action>Click(box=(500, 500))</action>");
+  });
+
+  it("OFFICIAL protocol: agent turns use temperature 1.0 + thinking (model card)", async () => {
+    const fetchMock = vi.fn(async () =>
+      okResponse("<action>Finished()</action>"),
+    );
+    vi.stubGlobal("fetch", fetchMock);
+    const provider = new UiVenusProvider(cfg());
+    await provider.decideNextAction({ goal: "g", observation: obs(), history: [] });
+    const body = JSON.parse((fetchMock.mock.calls[0]![1] as RequestInit).body as string);
+    expect(body.temperature).toBe(1.0);
+    expect(body.chat_template_kwargs).toEqual({ enable_thinking: true });
+    // official system prompt with the user task
+    const system = body.messages[0].content as string;
+    expect(system).toContain("You are a GUI Agent");
+    expect(system).toContain("g");
+  });
+
+  it("OFFICIAL protocol: grounding stays temperature 0 / no thinking", async () => {
+    const fetchMock = vi.fn(async () => okResponse("[500, 500]"));
+    vi.stubGlobal("fetch", fetchMock);
+    const provider = new UiVenusProvider(cfg());
+    await provider.locate({ instruction: "x", observation: obs() });
+    const body = JSON.parse((fetchMock.mock.calls[0]![1] as RequestInit).body as string);
+    expect(body.temperature).toBe(0);
+    expect(body.chat_template_kwargs).toEqual({ enable_thinking: false });
+  });
+
+  it("OFFICIAL protocol: multi-turn history keeps accepted responses + last 2 screenshots", async () => {
+    const fetchMock = vi.fn(async () => okResponse("<action>Finished()</action>"));
+    vi.stubGlobal("fetch", fetchMock);
+    const provider = new UiVenusProvider(cfg());
+    const history = [
+      { index: 1, action: { type: "wait", durationMs: 1 } as never, ok: true, summary: "w", acceptedResponse: "<action>Click(box=(10, 10))</action>", screenshot: { dataBase64: "aGlzdDE=", format: "png" as const } },
+      { index: 2, action: { type: "wait", durationMs: 1 } as never, ok: true, summary: "w", acceptedResponse: "<action>Wait()</action>" },
+      { index: 3, action: { type: "wait", durationMs: 1 } as never, ok: true, summary: "w", acceptedResponse: "<action>Type(content='hi')</action>", screenshot: { dataBase64: "aGlzdDM=", format: "png" as const } },
+      { index: 4, action: { type: "wait", durationMs: 1 } as never, ok: true, summary: "no accepted response" },
+    ];
+    await provider.decideNextAction({ goal: "g", observation: obs(), history });
+    const body = JSON.parse((fetchMock.mock.calls[0]![1] as RequestInit).body as string);
+    const msgs = body.messages;
+    // system + turns(with accepted) ×2 (user+assistant) + current = 1 + 3*2 + 1 = 8
+    expect(msgs).toHaveLength(8);
+    const assistants = msgs.filter((m: { role: string }) => m.role === "assistant");
+    expect(assistants).toHaveLength(3);
+    expect(assistants[0].content).toContain("Click(box=(10, 10))");
+    // history images: turns 1 and 3 have screenshots, but only the LAST 2
+    // turns-with-screenshots window applies → turn 1 image dropped (only 2 kept, from turns 1..3 window: imageStart = 3-2 = 1)
+    const imageMsgs = msgs.filter((m: { role: string; content: unknown }) => m.role === "user" && Array.isArray(m.content));
+    // imageStart = 3 turns - 2 = 1 → filtered turn 0's image is dropped, turn 2's kept → 1 history + 1 current
+    expect(imageMsgs).toHaveLength(2);
+    // eslint-disable-next-line no-console
+    expect(imageMsgs[imageMsgs.length - 1].content[0].text).toContain("Current Screenshot");
+  });
+
+  it("OFFICIAL protocol: Swipe/Type/Hotkey/Finished map to unified actions", async () => {
+    const provider = new UiVenusProvider(cfg());
+    const responses = [
+      "<action>Swipe(amount=-800, axis='vertical')</action>",
+      "<action>Type(content='你好\n')</action>",
+      "<action>Hotkey(keys=['ctrl', 'c'], repeat=3)</action>",
+      "<action>CallUser(content='cannot proceed')</action>",
+    ];
+    const results = [];
+    for (const content of responses) {
+      vi.stubGlobal("fetch", vi.fn(async () => okResponse(content)));
+      results.push(await provider.decideNextAction({ goal: "g", observation: obs(), history: [] }));
+    }
+    expect(results[0]!.action.type).toBe("scroll");
+    expect(results[0]!.action).toMatchObject({ direction: "down" });
+    expect(results[1]!.action).toMatchObject({ type: "type", text: "你好", submit: true });
+    expect(results[2]!.action.type).toBe("hotkey");
+    expect(results[2]!.sequence).toHaveLength(2); // repeat=3 → 1 + 2 extra
+    expect(results[3]!.needsUser).toBe(true);
+    expect(results[3]!.action).toMatchObject({ type: "fail" });
+  });
+
+  it("OFFICIAL protocol: parse failure retries once with identical messages", async () => {
+    const fetchMock = vi.fn(async () => okResponse("<action>Click(box=)</action>"));
+    vi.stubGlobal("fetch", fetchMock);
+    const provider = new UiVenusProvider(cfg());
+    await expect(provider.decideNextAction({ goal: "g", observation: obs(), history: [] })).rejects.toThrow(/invalid action after 2 attempts/);
+    expect(fetchMock).toHaveBeenCalledTimes(2);
   });
 
   it("refuses to construct without an API key", () => {

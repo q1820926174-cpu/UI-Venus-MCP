@@ -86,6 +86,6 @@ describe("screenshot pipeline (spec §31)", () => {
     expect(shot.format).toBe("jpeg");
     expect(shot.scale).toBeCloseTo(1); // halved image halves the effective scale
     expect(shot.origin).toEqual({ x: 10, y: 20 });
-    expect(shot.hash).toMatch(/^[0-9a-f]{16}$/);
+    expect(shot.hash).toMatch(/^[0-9a-f]{64}$/);
   });
 });

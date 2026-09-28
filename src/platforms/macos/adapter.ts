@@ -142,12 +142,14 @@ export class MacosAdapter implements PlatformAdapter {
 
     const raw = await captureDisplay(region);
     const origin = region ? { x: region.x, y: region.y } : { x: primary.x, y: primary.y };
-    return processScreenshot(raw, {
+    const shot = processScreenshot(raw, {
       targetId: this.info.id,
       scale: primary.scale,
       origin,
       orientation: primary.width >= primary.height ? "landscape" : "portrait",
     }, this.opts.screenshot);
+    this.lastShot = shot;
+    return shot;
   }
 
   async observe(options: ObserveOptions = {}): Promise<Observation> {
@@ -155,7 +157,20 @@ export class MacosAdapter implements PlatformAdapter {
     const includeTree = options.includeUITree !== false;
     const screen = await this.getScreenInfo();
     const activeApp = await this.frontmostApp();
-    const shot = includeShot ? await this.screenshot().catch(() => undefined) : undefined;
+    let shot: Screenshot | undefined;
+    if (includeShot) {
+      let region: ScreenshotOptions["region"];
+      if (options.scope === "window" && activeApp?.name) {
+        // window-scoped capture: the model reads small UI (calculator
+        // displays, dense dialogs) far more reliably at window scale
+        const windows = await this.listWindows().catch(() => []);
+        const front = windows[0];
+        if (front?.bounds && front.bounds.width > 40 && front.bounds.height > 40) {
+          region = front.bounds;
+        }
+      }
+      shot = await this.screenshot(region ? { region } : {}).catch(() => undefined);
+    }
     let uiTree;
     if (includeTree && this.caps.accessibility && activeApp?.name) {
       try {
@@ -330,12 +345,14 @@ export class MacosAdapter implements PlatformAdapter {
         await input.pressKey("delete");
         return { ok: true, method: "coordinate" };
       }
-      case "press":
-        await input.pressKey(action.key);
+      case "press": {
+        const key = normalizeMacKey(action.key);
+        await input.pressKey(key);
         return { ok: true, method: "coordinate" };
+      }
       case "hotkey": {
-        const mods = action.keys.slice(0, -1);
-        const key = action.keys[action.keys.length - 1]!;
+        const mods = action.keys.slice(0, -1).map(normalizeMacKey);
+        const key = normalizeMacKey(action.keys[action.keys.length - 1]!);
         await input.pressKey(key, mods);
         return { ok: true, method: "coordinate" };
       }
@@ -435,10 +452,23 @@ export class MacosAdapter implements PlatformAdapter {
     throw new ComputerUseError("invalid_request", "drag/swipe endpoints need point or element with bounds");
   }
 
-  /** Accept points in any declared space; macOS logical points are canonical here. */
+  private lastShot: Screenshot | undefined;
+
+  /**
+   * Accept points in any declared space; macOS logical points are canonical.
+   * "screenshot" points convert through the captured image's scale/origin —
+   * a downscaled capture (e.g. 1600×900 from a 1920×1080 screen, scale 0.833)
+   * must be scaled back up, otherwise clicks land off-target.
+   */
   private pointFromAction(p: { x: number; y: number; space?: string }): { x: number; y: number } {
     const space = p.space ?? "logical";
-    if (space === "logical" || space === "screenshot") return { x: p.x, y: p.y };
+    if (space === "logical") return { x: p.x, y: p.y };
+    if (space === "screenshot") {
+      const shot = this.lastShot;
+      if (!shot) return { x: p.x, y: p.y };
+      const scale = shot.scale > 0 ? shot.scale : 1;
+      return { x: shot.origin.x + p.x / scale, y: shot.origin.y + p.y / scale };
+    }
     if (space === "physical") {
       const scale = this.displays.find((d) => d.primary)?.scale ?? 1;
       return { x: p.x / scale, y: p.y / scale };
@@ -529,4 +559,14 @@ end tell`;
     }
     return null;
   }
+}
+
+/** Normalize model key names to macOS virtual-key vocabulary (super/meta/win → command). */
+function normalizeMacKey(key: string): string {
+  const k = key.toLowerCase();
+  if (k === "super" || k === "meta" || k === "win" || k === "windows") return "command";
+  if (k === "return") return "enter";
+  if (k === "esc") return "escape";
+  if (k === "del") return "delete";
+  return k;
 }

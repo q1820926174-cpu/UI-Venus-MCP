@@ -28,14 +28,16 @@ Content-Type: application/json
 }
 ```
 
-**Coordinate space (calibrated 2026-09-28):** grounding output is
-`[x, y]` normalized to `[0,1000]` relative to the image. Calibration: a
-button centered at pixel (1300, 740) on a 1920×1080 screenshot → model
-returned `[676, 680]`. The provider converts to screenshot pixel space
-via `x/1000 * width`. See `tests/e2e/venus-live.test.ts` +
-`tests/fixtures/calibration.png`.
+**Two task families, two protocols** (per the official model card +
+`inclusionAI/UI-Venus` @ UI-Venus-2, `models/computer/computer_example.py`,
+aligned 2026-09-28):
 
-**Grounding prompt (official):**
+### GUI grounding (locate)
+
+- Single-shot, **thinking OFF, temperature 0**; `chat_template_kwargs.enable_thinking`
+  must be sent explicitly false — the deployment thinks by default.
+- Output `[x, y]` normalized to **[0, 1000]**; `[-1,-1]` = infeasible.
+- Official prompt:
 
 ```text
 Output the center point of the position corresponding to the following instruction:
@@ -46,10 +48,33 @@ Additionally, if the task is infeasible (e.g., the task is not related to the im
 the output should be [-1,-1].
 ```
 
-**Observed agent-step behavior:** the model answers
-`Thought: ...\nAction: click(x=676, y=683)` — note the *named* arguments;
-the provider parser accepts both positional and named forms, plus code
-fences and trailing prose.
+Live calibration: button at pixel (1300,740) on 1920×1080 → `[676, 684]`
+(`tests/e2e/venus-live.test.ts` + `tests/fixtures/calibration.png`).
+
+### Agentic loop (decideNextAction)
+
+- **Official system prompt** (verbatim, from `computer_example.py`) with the
+  user task and a sudo-password slot (`VENUS_SUDO_PASSWORD`).
+- Output format: `<think> ... </think>` + `<action> the next action </action>`;
+  vLLM `reasoning_content` is merged when content has no `<think>` tag.
+- Action grammar (Python-call syntax, keyword args only):
+  `Click(box=(x, y))` · `DoubleClick/TripleClick/RightClick/MiddleClick` ·
+  `Hover` · `Drag(end=, start=)` · `Swipe(amount=, axis=)` · `Type(content=)`
+  · `Hotkey(keys=, repeat=)` · `KeyDown/KeyUp/MouseDown/MouseUp` ·
+  `Sequence(actions=[...])` (2–32, no nesting, terminal last) · `Wait()` ·
+  `CallUser(content=)` · `Finished(content=)`.
+- **Coordinates are [0, 999]**, converted with `int(v × size / 999)`
+  clamped to `[0, size-1]` (NOT /1000 — corrected after reading the
+  official implementation).
+- Model card: agentic tasks use **temperature 1.0 + reasoning enabled +
+  full reasoning history** (configurable: `VENUS_AGENT_TEMPERATURE`,
+  `VENUS_AGENT_ENABLE_THINKING`; defaults follow the model card).
+- Multi-turn context: **accepted-only** assistant history (rejected
+  responses never enter the conversation) + the last N history screenshots
+  (`VENUS_AGENT_HISTORY_IMAGES`, default 2). One same-messages retry on
+  parse failure (official default 1).
+- The provider parser is AST-safe (no eval): rejects positional args,
+  `**kwargs`, nested Sequence, non-literal values, unknown actions.
 
 ## Configuration
 

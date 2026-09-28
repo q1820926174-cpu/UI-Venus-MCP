@@ -206,7 +206,7 @@ describe.skipIf(!RUN)("BrowserAdapter E2E (playwright + chromium, file:// fixtur
     expect(shot.orientation).toBe("landscape");
     expect(shot.width).toBe(1024);
     expect(shot.height).toBe(768);
-    expect(shot.hash).toMatch(/^[0-9a-f]{16}$/);
+    expect(shot.hash).toMatch(/^[0-9a-f]{64}$/);
     expect(shot.targetId).toContain("browser:chromium");
 
     const decoded = decodeImage(Buffer.from(shot.dataBase64, "base64"));

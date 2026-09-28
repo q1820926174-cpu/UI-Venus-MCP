@@ -24,6 +24,8 @@ export interface ObserveOptions {
   includeUITree?: boolean;
   includeDom?: boolean;
   maxTreeDepth?: number;
+  /** "window": capture the frontmost app's window region (better vision legibility for small windows); default "screen" */
+  scope?: "window" | "screen";
 }
 
 export interface ScreenshotOptions {

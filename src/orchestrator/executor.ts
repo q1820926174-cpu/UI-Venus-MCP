@@ -93,6 +93,11 @@ export class TaskOrchestrator {
   }
 
   async executeTask(opts: ExecuteTaskOptions): Promise<TaskRecord> {
+    if (!opts.goal || !opts.goal.trim()) {
+      throw new ComputerUseError("invalid_request", "executeTask requires a non-empty `goal`", {
+        hint: "The MCP tool computer_execute_task maps its `task` argument to `goal`.",
+      });
+    }
     const id = randomUUID().slice(0, 8);
     const mode = opts.mode ?? "auto";
     const record: TaskRecord = {
@@ -180,8 +185,8 @@ export class TaskOrchestrator {
         return this.snapshot(entry);
       }
 
-      // ---- observe
-      const obs = await session.adapter.observe();
+      // ---- observe (window-scoped: small UI stays legible for the vision model)
+      const obs = await session.adapter.observe({ scope: "window" });
       record.state = sm.state;
 
       // ---- decide (delegate/auto both use the vision provider as GUI expert)
@@ -194,13 +199,44 @@ export class TaskOrchestrator {
         screenHash: s.screenHash,
         error: s.error,
       }));
-      const decision = await this.provider.decideNextAction({
-        goal: opts.goal,
-        observation: obs,
-        history,
-        language: opts.language,
-      });
+      let decision;
+      try {
+        decision = await this.provider.decideNextAction({
+          goal: opts.goal,
+          observation: obs,
+          history,
+          language: opts.language,
+        });
+      } catch (e) {
+        // Model produced an unparseable answer: feed the failure back as a
+        // synthetic failed step and re-observe instead of failing the whole
+        // task (spec §32 recovery ladder).
+        recoveries++;
+        if (recoveries > this.cfg.orchestrator.maxRecoveries) throw e;
+        record.steps.push({
+          index: stepIndex + 1,
+          action: { type: "wait", durationMs: 0 },
+          ok: false,
+          summary: `model output rejected: ${(e as Error).message.slice(0, 160)}`,
+          screenHash: obs.screenshot?.hash,
+          error: (e as Error).message.slice(0, 200),
+        });
+        stepIndex++;
+        sm.transition("RECOVERING", "re-querying after bad model output");
+        record.state = sm.state;
+        await new Promise((r) => setTimeout(r, 200));
+        sm.transition("OBSERVING");
+        record.state = sm.state;
+        continue;
+      }
       const action: Action = parseAction(decision.action);
+      // Official accepted-only history: once the response parses, the
+      // assistant turn (thought + action) and this turn's screenshot join
+      // the multi-turn context for all future decide calls.
+      const historyTurn: Partial<TaskRecord["steps"][number]> = {
+        acceptedResponse: decision.acceptedResponse,
+        screenshot: obs.screenshot ? { dataBase64: obs.screenshot.dataBase64, format: obs.screenshot.format } : undefined,
+      };
 
       // ---- security gate
       const verdict = evaluateAction(action, security);
@@ -226,7 +262,7 @@ export class TaskOrchestrator {
       // ---- finish action → verify
       if (action.type === "finish" || action.type === "fail") {
         sm.transition("VERIFYING");
-        const finalObs = action.type === "fail" ? obs : await session.adapter.observe();
+        const finalObs = action.type === "fail" ? obs : await session.adapter.observe({ scope: "window" });
         if (action.type === "fail") {
           sm.transition("FAILED", action.reason);
           record.state = sm.state;
@@ -239,7 +275,7 @@ export class TaskOrchestrator {
           source: "structured" as const,
           evidence: `verifier error: ${e.message}`,
           confidence: 0,
-          raw: "",
+          raw: e.stack?.slice(0, 800) ?? "",
         }));
         record.outcome = {
           status: verify.pass ? "SUCCESS" : "FAILED",
@@ -275,6 +311,23 @@ export class TaskOrchestrator {
       // ---- execute
       sm.transition("EXECUTING");
       const result = await session.adapter.executeAction(execAction);
+      const sequenceTail: Action[] = result.ok && decision.sequence?.length ? decision.sequence : [];
+      for (const child of sequenceTail) {
+        // official Sequence semantics: children execute open-loop; a
+        // security deny or hard failure aborts the remainder
+        const childVerdict = evaluateAction(child, security);
+        if (childVerdict.verdict === "deny") {
+          result.ok = false;
+          result.error = { code: "security_blocked", message: childVerdict.reason };
+          break;
+        }
+        const childResult = await session.adapter.executeAction(child);
+        if (!childResult.ok) {
+          result.ok = false;
+          result.error = childResult.error;
+          break;
+        }
+      }
       stepIndex++;
       const step: TaskRecord["steps"][number] = {
         index: stepIndex,
@@ -284,8 +337,12 @@ export class TaskOrchestrator {
         screenHash: obs.screenshot?.hash,
         error: result.error?.message,
         result,
+        acceptedResponse: historyTurn.acceptedResponse,
+        screenshot: historyTurn.screenshot,
       };
       record.steps.push(step);
+      // bound memory: only the last few turns' screenshots are ever sent
+      for (let i = 0; i < record.steps.length - 4; i++) record.steps[i]!.screenshot = undefined;
       record.updatedAt = Date.now();
 
       guard.record({
@@ -322,6 +379,30 @@ export class TaskOrchestrator {
         await new Promise((r) => setTimeout(r, 300));
         sm.transition("OBSERVING", "re-observing after stagnation");
         continue;
+      }
+
+      // ---- per-step verification (spec §22 loop): structured heuristics
+      // first (free), vision verdict only when structure can't answer.
+      // A passing check finishes the task even when the model keeps going —
+      // small models often re-issue the final action instead of Finished.
+      if (result.ok && execAction.type !== "wait") {
+        const postObs = await session.adapter.observe({ scope: "window" });
+        const stepVerify = await verifier
+          .verifyGoal(postObs, opts.goal)
+          .catch(() => null);
+        if (stepVerify?.pass) {
+          sm.transition("VERIFYING", "per-step check");
+          record.state = sm.state;
+          record.outcome = {
+            status: "SUCCESS",
+            evidence: stepVerify.evidence,
+            verify: { pass: true, source: stepVerify.source, evidence: stepVerify.evidence },
+          };
+          sm.transition("SUCCESS", "per-step verification passed");
+          record.state = sm.state;
+          record.finishedAt = Date.now();
+          return this.snapshot(entry);
+        }
       }
 
       if (!result.ok) {
