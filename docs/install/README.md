@@ -70,13 +70,17 @@ Then list the host under `CUMCP_REMOTES` as above. Full playbook:
 
 ## Post-install smoke
 
+Minimal stdio handshake against the installed server (initialize +
+tools/list) from a source checkout:
+
 ```bash
-node - <<'EOF'
-import { spawn } from "node:child_process";
-const child = spawn("node", [process.argv[1]], { stdio: ["pipe", "pipe", "inherit"] });
-EOF
+node scripts/smoke-venus.ts            # one calibration request to the vision endpoint
+node dist/index.js --http --port 8765 & # then from another terminal:
+curl -sS -X POST localhost:8765/mcp -H "Content-Type: application/json" \
+  -H "Accept: application/json, text/event-stream" \
+  -d '{"jsonrpc":"2.0","id":1,"method":"tools/list","params":{}}' | head -c 300
+kill %1
 ```
 
-Simplest: start it and call `computer_list_targets` from your client —
-expect your platform plus any configured remotes with honest availability.
-`pnpm smoke:venus` (source checkout) verifies the vision endpoint.
+Or simply call `computer_list_targets` from your MCP client — expect your
+platform plus any configured remotes with honest availability.
