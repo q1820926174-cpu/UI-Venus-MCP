@@ -1,0 +1,37 @@
+name: mock-toggle-and-verify
+description: |
+  Portable cross-platform script: turns 自动更新 off, saves, asserts the
+  state. Runs unchanged on any platform whose adapter can satisfy the
+  locators (mock / macos / windows / android / browser).
+target:
+  type: local
+  platform: auto
+
+steps:
+  - description: 打开设置
+    locate:
+      role: button
+      name: 设置
+    action: click
+
+  - description: 等待设置页出现
+    action: wait
+    durationMs: 500
+
+  - description: 关闭自动更新
+    locate:
+      name: 自动更新
+    action: toggle
+    value: false
+
+  - description: 保存
+    locate:
+      role: button
+      name: 保存
+    action: click
+
+assert:
+  - element:
+      name: 自动更新
+    property:
+      checked: false

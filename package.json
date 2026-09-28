@@ -1,0 +1,51 @@
+{
+  "name": "ui-venus-mcp",
+  "version": "0.1.0",
+  "description": "Cross-Platform Computer-Use MCP — unified, structure-first, vision-fallback GUI automation for any AI agent, powered by pluggable vision providers (UI-Venus-2-9B default).",
+  "type": "module",
+  "license": "MIT",
+  "engines": {
+    "node": ">=20"
+  },
+  "bin": {
+    "ui-venus-mcp": "dist/index.js"
+  },
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "files": [
+    "dist",
+    "README.md",
+    "LICENSE"
+  ],
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "dev": "tsx src/index.ts",
+    "start": "node dist/index.js",
+    "start:http": "node dist/index.js --http --port 8765",
+    "test": "vitest run",
+    "test:unit": "vitest run tests/unit",
+    "test:integration": "vitest run tests/integration",
+    "test:e2e": "vitest run tests/e2e",
+    "test:e2e:macos": "RUN_MACOS_E2E=1 vitest run tests/e2e/macos-real.test.ts",
+    "test:e2e:venus": "RUN_VENUS_LIVE=1 vitest run tests/e2e/venus-live.test.ts",
+    "smoke:venus": "tsx scripts/smoke-venus.ts",
+    "typecheck": "tsc -p tsconfig.json --noEmit"
+  },
+  "dependencies": {
+    "@modelcontextprotocol/sdk": "^1.17.0",
+    "jpeg-js": "^0.4.4",
+    "pngjs": "^7.0.0",
+    "yaml": "^2.6.1",
+    "zod": "^3.25.67"
+  },
+  "devDependencies": {
+    "@types/node": "^24.0.0",
+    "@types/pngjs": "^6.0.5",
+    "tsx": "^4.19.2",
+    "typescript": "^5.7.2",
+    "vitest": "^3.1.4"
+  },
+  "optionalDependencies": {
+    "playwright": "^1.49.0"
+  }
+}

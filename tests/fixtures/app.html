@@ -1,0 +1,142 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>示例应用 — 登录</title>
+<style>
+  :root { color-scheme: light; }
+  * { box-sizing: border-box; }
+  body {
+    font-family: "PingFang SC", "Hiragino Sans GB", "Microsoft YaHei", sans-serif;
+    margin: 0; color: #1f2430; background: #f5f6fa;
+  }
+  header {
+    display: flex; align-items: center; justify-content: space-between;
+    padding: 12px 24px; background: #24292f; color: #fff;
+  }
+  header nav a { color: #cfe3ff; margin-right: 16px; text-decoration: none; }
+  header nav a:hover { text-decoration: underline; }
+  #version-badge {
+    background: #3fb950; color: #08230f; border-radius: 10px;
+    padding: 2px 10px; font-size: 12px;
+  }
+  main { max-width: 640px; margin: 0 auto; padding: 24px 16px 8px; }
+  h1 { font-size: 22px; margin: 8px 0; }
+  .intro { color: #57606a; }
+  form { display: grid; gap: 10px; background: #fff; border: 1px solid #d0d7de;
+         border-radius: 8px; padding: 16px; }
+  label[for] { font-weight: 600; }
+  input[type="text"], input[type="password"], select {
+    padding: 8px 10px; border: 1px solid #d0d7de; border-radius: 6px; font-size: 14px;
+  }
+  .check { display: flex; align-items: center; gap: 8px; }
+  button { padding: 8px 16px; border: 0; border-radius: 6px; font-size: 14px; cursor: pointer; }
+  #login-btn { background: #1f6feb; color: #fff; justify-self: start; }
+  .row { display: flex; gap: 12px; align-items: center; margin: 16px 0; }
+  #result {
+    margin-top: 16px; padding: 12px; border-radius: 8px;
+    background: #fff8c5; border: 1px solid #d4a72c; min-height: 20px;
+  }
+  #scroll-pos { color: #57606a; font-size: 13px; }
+  .spacer {
+    margin-top: 16px; padding: 24px 16px; height: 1400px;
+    background: repeating-linear-gradient(180deg, #eaeef2 0 40px, #f5f6fa 40px 80px);
+    color: #8b949e; border-radius: 8px;
+  }
+  footer { text-align: center; color: #8b949e; padding: 16px 0 32px; font-size: 13px; }
+</style>
+</head>
+<body>
+<header>
+  <nav aria-label="主导航">
+    <a href="#home" data-nav="home">首页</a>
+    <a href="#settings" data-nav="settings">设置</a>
+    <a href="#help" data-nav="help">帮助</a>
+  </nav>
+  <span id="version" data-testid="version-badge">v1.0.0</span>
+</header>
+
+<main>
+  <h1>登录到示例应用</h1>
+  <p class="intro">这是一个用于端到端测试的本地页面：包含中文文本、登录表单与常用控件，无需任何网络。</p>
+
+  <form id="login-form">
+    <label for="username">用户名</label>
+    <input id="username" name="username" type="text" autocomplete="username" placeholder="请输入用户名">
+
+    <label for="password">密码</label>
+    <input id="password" name="password" type="password" autocomplete="current-password" placeholder="请输入密码">
+
+    <label class="check"><input id="autoupdate" type="checkbox" checked> 自动更新</label>
+
+    <label for="theme">主题</label>
+    <select id="theme">
+      <option value="light">浅色</option>
+      <option value="dark">深色</option>
+      <option value="system">跟随系统</option>
+    </select>
+
+    <button id="login-btn" type="submit">登录</button>
+  </form>
+
+  <div class="row">
+    <button id="dialog-btn" type="button">打开确认对话框</button>
+    <button id="counter-btn" type="button">计数器 +1</button>
+    <span>计数: <span id="counter">0</span></span>
+  </div>
+
+  <div id="result" data-testid="result-panel" role="status">等待操作</div>
+  <div id="scroll-pos">滚动位置: 0</div>
+
+  <div class="spacer" aria-hidden="true">
+    以下是用于滚动的长内容区域（占位）。
+  </div>
+</main>
+
+<footer>页脚 — 本地测试夹具（file://），不依赖网络。</footer>
+
+<script>
+(function () {
+  var result = document.getElementById("result");
+  var counterEl = document.getElementById("counter");
+  var counter = 0;
+
+  // Second tab opened by tests carries "#second": distinct title for focus tests.
+  if (location.hash === "#second") {
+    document.title = "第二标签页 — 设置";
+  }
+
+  document.getElementById("login-form").addEventListener("submit", function (ev) {
+    ev.preventDefault();
+    var user = document.getElementById("username").value.trim() || "匿名";
+    var theme = document.getElementById("theme");
+    var themeText = theme.options[theme.selectedIndex].textContent;
+    result.textContent = "已登录: " + user + " (主题: " + themeText + ")";
+  });
+
+  document.querySelectorAll("nav a").forEach(function (a) {
+    a.addEventListener("click", function () {
+      result.textContent = "导航: " + a.textContent.trim();
+    });
+  });
+
+  document.getElementById("dialog-btn").addEventListener("click", function () {
+    var ok = window.confirm("确认执行此操作？");
+    result.textContent = ok ? "已确认对话框" : "已取消对话框";
+  });
+
+  document.getElementById("counter-btn").addEventListener("click", function () {
+    counter += 1;
+    counterEl.textContent = String(counter);
+    result.textContent = "计数器: " + counter;
+  });
+
+  window.addEventListener("scroll", function () {
+    document.getElementById("scroll-pos").textContent =
+      "滚动位置: " + Math.round(window.scrollY);
+  });
+})();
+</script>
+</body>
+</html>
