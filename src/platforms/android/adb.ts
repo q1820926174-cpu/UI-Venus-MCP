@@ -79,15 +79,16 @@ export function adbCandidates(deps: AdbDiscoveryDeps = {}): string[] {
   const push = (p?: string | null): void => {
     if (p) out.push(p);
   };
-  if (env.ANDROID_HOME) push(join(env.ANDROID_HOME, "platform-tools", binary));
-  if (env.ANDROID_SDK_ROOT) push(join(env.ANDROID_SDK_ROOT, "platform-tools", binary));
+  const njoin = (...parts: string[]): string => join(...parts).replace(/\\/g, "/");
+  if (env.ANDROID_HOME) push(njoin(env.ANDROID_HOME, "platform-tools", binary));
+  if (env.ANDROID_SDK_ROOT) push(njoin(env.ANDROID_SDK_ROOT, "platform-tools", binary));
   if (platform === "darwin" && env.HOME) {
-    push(join(env.HOME, "Library", "Android", "sdk", "platform-tools", binary));
+    push(njoin(env.HOME, "Library", "Android", "sdk", "platform-tools", binary));
   }
   if (platform === "linux") push(`/usr/lib/android-sdk/platform-tools/${binary}`);
   const sep = platform === "win32" ? ";" : ":";
   for (const dir of (env.PATH ?? "").split(sep)) {
-    if (dir.trim()) push(join(dir, binary));
+    if (dir.trim()) push(njoin(dir, binary));
   }
   return out;
 }

@@ -6,7 +6,7 @@
  * when playwright is missing or RUN_BROWSER_E2E=0.
  */
 import { describe, it, expect, beforeAll, afterAll } from "vitest";
-import { pathToFileURL } from "node:url";
+import { pathToFileURL, fileURLToPath } from "node:url";
 import { BrowserAdapter, browserProbe } from "../../src/platforms/browser/adapter.js";
 import { decodeImage } from "../../src/screenshot/pipeline.js";
 import { ComputerUseError } from "../../src/core/errors.js";
@@ -14,7 +14,7 @@ import type { ElementRef, UINode } from "../../src/core/types.js";
 import type { Action } from "../../src/core/types-action.js";
 
 const RUN = process.env.RUN_BROWSER_E2E !== "0";
-const FIXTURE_URL = pathToFileURL(new URL("../fixtures/app.html", import.meta.url).pathname).href;
+const FIXTURE_URL = pathToFileURL(fileURLToPath(new URL("../fixtures/app.html", import.meta.url))).href;
 
 /** All roles in a UI tree, depth-first. */
 function collectRoles(node: UINode, out: Set<string> = new Set()): Set<string> {
