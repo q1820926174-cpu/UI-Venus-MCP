@@ -1,0 +1,45 @@
+name: Release
+
+# Package on tags: builds, runs the hermetic test suite, `npm pack`s and
+# attaches the tarball to a GitHub Release. Installers then use:
+#   npm install https://github.com/q1820926174-cpu/UI-Venus-MCP/releases/latest/download/ui-venus-mcp-<ver>.tgz
+# or straight from the repo (prepare builds automatically):
+#   npm install github:q1820926174-cpu/UI-Venus-MCP
+on:
+  push:
+    tags: ["v*"]
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 10
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm exec playwright install chromium --with-deps || pnpm exec playwright install chromium
+      - run: pnpm typecheck
+      - run: pnpm build
+      - name: Test (hermetic)
+        run: pnpm test
+        env:
+          RUN_BROWSER_E2E: "1"
+      - name: Verify pack contents
+        run: |
+          npm pack --dry-run
+      - name: Pack
+        run: npm pack
+      - name: Release
+        uses: softprops/action-gh-release@v2
+        with:
+          generate_release_notes: true
+          files: |
+            *.tgz
