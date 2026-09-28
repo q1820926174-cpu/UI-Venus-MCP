@@ -77,22 +77,46 @@ export async function adapterRegistrations(): Promise<AdapterRegistration[]> {
       });
     }
   } else {
-    // host cannot serve a local Windows target — still register so
-    // list_targets can explain WHY it is unavailable (honesty > silence)
-    regs.push({
-      platform: "windows",
-      factory: async () => {
-        throw new (await import("../core/errors.js")).ComputerUseError(
-          "unsupported",
-          "Local Windows target requires running the MCP server on Windows",
-          { hint: "Run ui-venus-mcp on the Windows machine, or target a remote/vm host (roadmap)." },
-        );
-      },
-      probe: async () => ({
-        available: false,
-        reason: `host platform is ${process.platform}; Windows adapter needs a Windows host (see docs/install/windows.md for remote testing)`,
-      }),
-    });
+    // Non-Windows hosts: a REMOTE Windows target is servable over SSH when
+    // the session-1 queue bridge is configured (spec §13 architecture —
+    // the MCP stays local, the target only runs inbox PowerShell bridges).
+    const remoteSsh = process.env.CUMCP_REMOTE_WINDOWS_SSH;
+    if (remoteSsh) {
+      const remoteRoot = process.env.CUMCP_REMOTE_WINDOWS_ROOT ?? "C:\\Users\\gold\\win-remote";
+      regs.push({
+        platform: "windows",
+        factory: async () => {
+          const { RemoteWindowsAdapter } = await import("./windows/remote-ssh.js");
+          return new RemoteWindowsAdapter({ sshHost: remoteSsh, remoteRoot });
+        },
+        probe: async () => {
+          try {
+            const { RemoteWindowsAdapter } = await import("./windows/remote-ssh.js");
+            const a = new RemoteWindowsAdapter({ sshHost: remoteSsh, remoteRoot });
+            const info = await a.open();
+            return { available: true, details: info.details as Record<string, unknown> };
+          } catch (e) {
+            return { available: false, reason: (e as Error).message };
+          }
+        },
+      });
+    } else {
+      // no remote config — explain honestly why it is unavailable
+      regs.push({
+        platform: "windows",
+        factory: async () => {
+          throw new (await import("../core/errors.js")).ComputerUseError(
+            "unsupported",
+            "Local Windows target requires running the MCP server on Windows",
+            { hint: "Run ui-venus-mcp on the Windows machine, or set CUMCP_REMOTE_WINDOWS_SSH to drive a remote host over SSH (docs/install/windows.md)." },
+          );
+        },
+        probe: async () => ({
+          available: false,
+          reason: `host platform is ${process.platform}; set CUMCP_REMOTE_WINDOWS_SSH for remote-SSH control, or run the MCP on Windows`,
+        }),
+      });
+    }
   }
 
   // ---- Linux

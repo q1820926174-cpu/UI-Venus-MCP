@@ -28,6 +28,10 @@ using System;
 using System.Runtime.InteropServices;
 
 public static class CuInput {
+    public struct WPT { public int X; public int Y; }
+    [DllImport("user32.dll")] public static extern IntPtr WindowFromPoint(WPT p);
+    [DllImport("user32.dll")] public static extern IntPtr GetAncestor(IntPtr hwnd, uint gaFlags);
+    [DllImport("user32.dll")] public static extern bool SetForegroundWindow(IntPtr hwnd);
     [StructLayout(LayoutKind.Sequential)]
     public struct MOUSEINPUT {
         public int dx; public int dy;
@@ -193,6 +197,15 @@ try {
             $abs = ConvertTo-Absolute $x $y $vs
             $down = [CuInput]::MOUSEEVENTF_LEFTDOWN; $up = [CuInput]::MOUSEEVENTF_LEFTUP
             if ($button -eq "right") { $down = [CuInput]::MOUSEEVENTF_RIGHTDOWN; $up = [CuInput]::MOUSEEVENTF_RIGHTUP }
+            # bring the window under the cursor to the foreground first —
+            # SendInput is dropped by unfocused/packaged windows otherwise
+            try {
+                $pt = New-Object CuInput+WPT
+                $pt.X = $x; $pt.Y = $y
+                $hwnd = [CuInput]::WindowFromPoint($pt)
+                if ($hwnd -and [CuInput]::GetAncestor($hwnd, 2)) { $root = [CuInput]::GetAncestor($hwnd, 2) } else { $root = $hwnd }
+                if ($root) { [void][CuInput]::SetForegroundWindow($root); Start-Sleep -Milliseconds 60 }
+            } catch {}
             # position first so hover state is correct
             Send-OrFail ([CuInput]::MakeMouse([CuInput]::MOUSEEVENTF_MOVE -bor [CuInput]::MOUSEEVENTF_ABSOLUTE, $abs.x, $abs.y, 0)) "click-move"
             for ($i = 1; $i -le $clicks; $i++) {

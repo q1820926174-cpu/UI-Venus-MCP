@@ -17,3 +17,6 @@ Thumbs.db
 *.log
 captures/
 tmp/
+
+# remote-E2E evidence (contains test-host desktop content — never commit)
+tests/e2e/__remote-win-*

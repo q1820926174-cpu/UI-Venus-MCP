@@ -61,3 +61,25 @@ The probe is read-only except: (a) an optional Notepad instance it starts
 and closes itself (`-WithNotepad`), and (b) one 1px mouse move that is
 restored immediately. It never changes settings, never writes outside its
 temp output dir, and never touches user data.
+
+
+## session1-e2e.ps1 — full primitive closed loop (interactive session)
+
+See docs/install/windows.md → “Interactive-session acceptance”. charmap is
+driven: launch → UIA locate → semantic setValue (CJK) → read-back →
+SendInput unicode typing → read-back → close. JSON results next to it.
+
+## queue-agent.ps1 + run-hidden.vbs — REMOTE control bridge
+
+The MCP runs on another machine; this agent (hidden, session 1) executes
+`capture | input | apps | uia-tree | uia-action | sysinfo` ops from a file
+queue. Start:
+
+```bash
+ssh <host> "schtasks /create /tn uivenus-bridge /tr "wscript.exe C:\Users\<user>\win-remote\run-hidden.vbs" /sc once /st 23:59 /it /f"
+ssh <host> "schtasks /run /tn uivenus-bridge"
+```
+
+Driver for the full remote vision-agent E2E (Calculator 7×3, verified
+2× SUCCESS on real hardware): `remote-agent-e2e.mjs` from the repo root on
+the controlling machine.

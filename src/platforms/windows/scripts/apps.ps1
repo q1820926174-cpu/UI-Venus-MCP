@@ -9,8 +9,11 @@
 
 param(
     [string]$Action = "exists",
+    # the queue bridge passes -Mode; accept it as an alias so both forms work
+    [string]$Mode = "",
     [string]$ArgsJson = ""
 )
+if ($Mode) { $Action = $Mode }
 
 $ErrorActionPreference = "Stop"
 try { [Console]::OutputEncoding = [System.Text.Encoding]::UTF8 } catch {}

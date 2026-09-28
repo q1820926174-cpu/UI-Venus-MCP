@@ -66,6 +66,11 @@ export function roleFromInstruction(instruction: string): string | undefined {
   return undefined;
 }
 
+function sharesCjkChar(a: string, b: string): boolean {
+  for (const ch of a) if (/[\u4e00-\u9fa5]/.test(ch) && b.includes(ch)) return true;
+  return false;
+}
+
 function nodeToElement(node: UINode): ElementRef {
   const { children: _children, ...el } = node;
   return el;
@@ -102,6 +107,9 @@ export function matchStructured(
       if (!tt) continue;
       if (name === tt) best = Math.max(best, 100);
       else if (name.includes(tt) || tt.includes(name)) best = Math.max(best, name.length > 0 ? 60 : 0);
+      else if (/^[\u4e00-\u9fa5]{1,4}$/.test(tt) && name.length > 0 && name.length <= 4 && sharesCjkChar(name, tt)) {
+        best = Math.max(best, 55); // 乘号↔乘以, 等号↔等于
+      }
       if (value.includes(tt) || desc.includes(tt)) best = Math.max(best, 40);
     }
     if (best === 0) continue;

@@ -294,15 +294,23 @@ export class TaskOrchestrator {
       let execAction: Action = action;
       if (!hasTarget(action) || action.type === "click" || action.type === "type" || action.type === "toggle") {
         if (needsElementResolution(action) && obs.uiTree) {
-          const instruction = actionInstruction(action, decision.thought);
-          if (instruction) {
-            const located = await locator.locate(session.adapter, {
-              instruction,
-              observation: obs,
-              preferStructured: record.mode === "auto",
-            }).catch(() => null);
-            if (located?.element && located.source === "structured") {
-              execAction = attachElement(action, located.element);
+          const instruction = actionInstruction(action, decision.thought, opts.goal);
+          const located = instruction
+            ? await locator.locate(session.adapter, {
+                instruction,
+                observation: obs,
+                preferStructured: record.mode === "auto",
+              }).catch(() => null)
+            : null;
+          if (located?.element && located.source === "structured") {
+            execAction = attachElement(action, located.element);
+          } else if (hasPoint(action) && obs.uiTree) {
+            // §21 fusion: the vision point is imprecise by design — snap it
+            // onto the structured element under it and execute semantically
+            const { snapToStructuredElement } = await import("./locator.js");
+            const snapped = snapToStructuredElement(obs, toScreenshotPixels(action, obs));
+            if (snapped?.bounds) {
+              execAction = attachElement(action, snapped);
             }
           }
         }
@@ -351,6 +359,7 @@ export class TaskOrchestrator {
         actionSummary: step.summary,
         elementId: "element" in execAction ? execAction.element?.id : undefined,
         screenHash: obs.screenshot?.hash,
+        treeDigest: treeDigest(obs.uiTree),
         ok: result.ok,
       });
       const stagnation = guard.evaluate();
@@ -437,6 +446,42 @@ export class TaskOrchestrator {
   }
 }
 
+/** Stable digest of the structured UI state: leaf texts + values. */
+function treeDigest(root: unknown): string | undefined {
+  if (!root || typeof root !== "object") return undefined;
+  const parts: string[] = [];
+  const walk = (n: { role?: string; name?: string; value?: string; children?: unknown[] }, depth: number): void => {
+    if (depth > 14 || parts.length > 240) return;
+    const leaf = !n.children || n.children.length === 0;
+    if (leaf && (n.name || n.value)) parts.push(`${n.role ?? ""}:${n.name ?? ""}=${n.value ?? ""}`);
+    for (const c of (n.children ?? []) as { role?: string; name?: string; value?: string; children?: unknown[] }[]) walk(c, depth + 1);
+  };
+  walk(root as never, 0);
+  if (parts.length === 0) return undefined;
+  let h = 5381;
+  const joined = parts.join("|");
+  for (let i = 0; i < joined.length; i++) h = ((h * 33) ^ joined.charCodeAt(i)) >>> 0;
+  return `t${h.toString(36)}`;
+}
+
+function hasPoint(action: Action): boolean {
+  return "point" in action && !!action.point;
+}
+
+/** Vision/normalized point → screenshot pixel space against this observation. */
+function toScreenshotPixels(action: Action, obs: import("../core/types.js").Observation): { x: number; y: number } {
+  const p = (action as { point?: { x: number; y: number; space?: string } }).point!;
+  if (!obs.screenshot) return { x: p.x, y: p.y };
+  if (!p.space || p.space === "screenshot") return { x: p.x, y: p.y };
+  const shot = obs.screenshot;
+  if (p.space === "normalized") {
+    return { x: (p.x / 1000) * shot.width, y: (p.y / 1000) * shot.height };
+  }
+  // logical/physical → screenshot: undo origin, apply scale
+  const scale = shot.scale > 0 ? shot.scale : 1;
+  return { x: (p.x - shot.origin.x) * scale, y: (p.y - shot.origin.y) * scale };
+}
+
 function needsElementResolution(action: Action): boolean {
   if (action.type === "click" || action.type === "double_click" || action.type === "right_click" || action.type === "long_press") {
     return !("element" in action && action.element);
@@ -447,10 +492,15 @@ function needsElementResolution(action: Action): boolean {
   return false;
 }
 
-/** Build the locate instruction from an action + model thought. */
-function actionInstruction(action: Action, thought?: string): string | undefined {
-  if (thought && thought.trim().length > 0) return thought.trim();
+/** Build the locate instruction: the GOAL text carries the cleanest semantic
+ *  tokens (点击 7、乘号…); the model thought is a fallback. */
+function actionInstruction(action: Action, thought?: string, goal?: string): string | undefined {
   if (action.type === "type") return undefined;
+  // the model's thought names the IMMEDIATE target ("现在点击乘号") —
+  // far more specific than the whole goal (whose tokens would re-resolve
+  // to the first mentioned element every step)
+  if (thought && thought.trim().length > 0) return thought.trim();
+  if (goal && goal.trim().length > 0) return goal.trim();
   return undefined;
 }
 

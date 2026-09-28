@@ -57,6 +57,41 @@ fallback), mojibake from missing UTF-8 BOM (all scripts now ship BOM),
 `\r`-tolerant setValue verification, packaged-Notepad pid/window mismatch
 (documented; classic Win32 apps used for acceptance).
 
+### Real-machine REMOTE agent E2E (official-protocol, OSWorld-flavor)
+
+Architecture per spec §13 — **the full MCP stack runs on the Mac; 151 is a
+pure remote executor** (`scripts/win-remote/remote-agent-e2e.mjs` +
+`RemoteWindowsAdapter` + session-1 queue bridge):
+
+```text
+Mac: TaskOrchestrator + UI-Venus (official protocol, direct endpoint)
+  ──ssh──▶ queue-agent.ps1 (session 1, hidden via wscript)
+  ◀──scp── screen.ps1 region capture (window-scoped)
+  ──ssh──▶ input.ps1 (SetForegroundWindow + SendInput click)
+```
+
+Task: *使用计算器计算 7 乘以 3* — vision-driven multi-step delegation.
+
+| Run | Outcome | Steps |
+|---|---|---|
+| 1 (post focus-fix) | **SUCCESS** — verifier: "screen shows the result 21, the correct product of 7 × 3" | 5 vision clicks |
+| 2 (stability) | **SUCCESS** — verifier: "displays the expression 7 × 3 = and the result 21" | canonical sequence: 清除 → 7 → 乘以 → 3 → 等于 (fusion attached the correct UIA element each step) |
+
+Earlier runs also reached display "21" but were mis-scored — root causes
+found and FIXED through this E2E (each verified on the real machine):
+
+| Bug | Fix |
+|---|---|
+| SSH session-0 blocks capture/SendInput | session-1 queue bridge (`queue-agent.ps1`), hidden via wscript (Windows Terminal ignores `-WindowStyle Hidden`) |
+| bridge console window covered the app | wscript style-0 launcher (`run-hidden.vbs`) |
+| calculator opened behind other windows | title-bar click bring-to-front + **SetForegroundWindow before every SendInput click** (unfocused/packaged windows drop injected input) |
+| 9B click imprecision (±30px misses 48px buttons) | §21 fusion snapping: vision point → UIA element under it → bounds-center semantic click |
+| fusion re-resolved every click to "7" (goal tokens) | instruction = model thought (names the IMMEDIATE target), goal as fallback |
+| aHash false-negative on thin digit strokes ("0"→"7" invisible) | stagnation guard now uses a **UIA tree-state digest** (leaf texts/values) with pixel hash as fallback |
+| vision verifier demanded visible action history | verify prompt judges final state only |
+| apps.ps1 `-Action` vs bridge `-Mode` mismatch | both parameters accepted |
+| remote JSON mojibake | `-Encoding UTF8` on bridge polls; base64 payloads both ways
+
 ## Linux
 
 | Item | Result | Class |
@@ -139,7 +174,7 @@ Aligned 2026-09-28 against the official sources: ModelScope model card
 
 | Platform | Status | How verified |
 |---|---|---|
-| Windows | **PASS (interactive session)** — full closed loop: capture + input + UIA semantic write/read-back + CJK typing; session-0 SSH limits honestly documented | real-device (session 1) + mock (parsing) |
+| Windows | **PASS** — primitives closed loop AND remote vision-driven agent task (7×3=21, 2× SUCCESS) on the real machine | real-device (session 1, remote-SSH architecture) + mock |
 | Linux | CODE COMPLETE — 55 mock tests; no real desktop run | mock |
 | macOS | PASS on core paths + delegate closed loop (Calculator × live Venus, single run) | real-device |
 | Android | CODE COMPLETE — 41 mock tests; needs on-device acceptance | mock |

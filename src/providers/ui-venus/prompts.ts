@@ -28,11 +28,13 @@ export function groundingPrompt(instruction: string): string {
   );
 }
 
-/** Verification prompt (MCP-specific; not part of the official protocol). */
+/** Verification prompt: final-state judgment + strict JSON contract. */
 export function verifyPrompt(goal: string): string {
   return (
     `Look at this screenshot. The goal was: "${goal}".\n\n` +
-    "Does the current screen state satisfy the goal? " +
+    "Judge ONLY by the final visible state (results, outputs, checked items, shown values) — " +
+    "do NOT require the action history or intermediate steps to be visible. " +
+    "Does the current screen show that the goal has been achieved? " +
     'Answer with exactly one JSON object: {"pass": true|false, "evidence": "<one short sentence describing what you see>"}'
   );
 }

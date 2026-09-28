@@ -43,6 +43,7 @@
 - **Security**: app/device/action/domain allowlists + sensitive-action detection (删除/支付/转账/install…) parking tasks in `WAITING_CONFIRMATION` with confirm tokens.
 - **Recorder → portable DSL**: recordings become YAML scripts with *semantic locators* (never `click(432,621); sleep(2)`), replayable across platforms; a UI-test runtime reports `PASS / FAIL / SKIP / BLOCKED`.
 - **Remote GPU architecture**: the 9B vision model runs on a server (OpenAI-compatible endpoint); clients only send screenshots — phones and laptops need no VRAM.
+- **Remote Windows control (spec §13)**: drive a Windows box over SSH from macOS/Linux with nothing installed on the target — a hidden session-1 queue agent runs the inbox PowerShell bridges; screenshots SCP back, SendInput goes forward. Verified on real hardware: the vision agent autonomously computed 7×3=21 in the remote Windows calculator (`scripts/win-remote/remote-agent-e2e.mjs`).
 
 ## Quick start
 

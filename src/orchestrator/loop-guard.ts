@@ -12,7 +12,12 @@ export interface StepFingerprint {
   actionType: string;
   actionSummary: string;
   elementId?: string;
+  /** perceptual hash of the screenshot (fallback signal) */
   screenHash?: string;
+  /** digest of the structured UI state (leaf texts/values) — strictly
+   *  better than pixels when available: thin-stroke text changes ("0"→"7")
+   *  are invisible to average hashes but obvious in the tree */
+  treeDigest?: string;
   ok: boolean;
 }
 
@@ -53,17 +58,23 @@ export class LoopGuard {
     if (n === 0) return { stagnant: false, reasons, recovery: "none" };
     const last = this.history[n - 1]!;
 
+    const screenKey = (h: StepFingerprint): string | undefined => h.treeDigest ?? h.screenHash;
+    const sameScreenAs = (a: StepFingerprint, b: StepFingerprint): boolean => {
+      const ka = screenKey(a);
+      const kb = screenKey(b);
+      if (ka === undefined || kb === undefined) return false;
+      // tree digests compare by equality; pixel hashes by hamming distance
+      if (a.treeDigest !== undefined && b.treeDigest !== undefined) return ka === kb;
+      return hammingDistance(ka, kb) <= this.opts.sameScreenDistance;
+    };
+
     // same-action + same-element + same-screen streak
     let streak = 1;
     for (let i = n - 2; i >= 0; i--) {
       const h = this.history[i]!;
       const sameAction = h.actionSummary === last.actionSummary;
       const sameElement = (h.elementId ?? "") === (last.elementId ?? "");
-      const sameScreen =
-        h.screenHash !== undefined &&
-        last.screenHash !== undefined &&
-        hammingDistance(h.screenHash, last.screenHash) <= this.opts.sameScreenDistance;
-      if (sameAction && sameElement && sameScreen) streak++;
+      if (sameAction && sameElement && sameScreenAs(h, last)) streak++;
       else break;
     }
     if (streak >= this.opts.maxStagnation) {
@@ -77,11 +88,7 @@ export class LoopGuard {
     // same screen without any state change (even with different actions)
     if (n >= this.opts.maxStagnation) {
       const recent = this.history.slice(-this.opts.maxStagnation);
-      const allSameScreen =
-        last.screenHash !== undefined &&
-        recent.every(
-          (h) => h.screenHash !== undefined && hammingDistance(h.screenHash, last.screenHash!) <= this.opts.sameScreenDistance,
-        );
+      const allSameScreen = recent.every((h) => sameScreenAs(h, last));
       if (allSameScreen) {
         reasons.push(`screen unchanged across last ${recent.length} steps${last.ok ? "" : " and last action failed"}`);
       }

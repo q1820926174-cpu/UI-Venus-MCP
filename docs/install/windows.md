@@ -168,6 +168,42 @@ session 0 (no desktop); two techniques unlock real-desktop testing:
 - Single-line EDIT controls report a trailing `\r`; `setValue`
   verification compares trimmed values.
 
+## Remote control from macOS/Linux (spec §13 architecture)
+
+The MCP runs on YOUR machine; the Windows host needs nothing installed —
+only the inbox PowerShell bridges + a session-1 queue agent:
+
+```bash
+# one-time on the Windows host (SSH, key auth):
+scp scripts/win-remote/*.ps1 <host>:win-remote/
+scp src/platforms/windows/scripts/*.ps1 <host>:win-remote/scripts/
+scp scripts/win-remote/run-hidden.vbs <host>:win-remote/   # create it (2 lines, see below)
+ssh <host> "schtasks /create /tn uivenus-bridge /tr "wscript.exe C:\Users\<user>\win-remote\run-hidden.vbs" /sc once /st 23:59 /it /f"
+ssh <host> "schtasks /run /tn uivenus-bridge"
+
+# then from the Mac — the remote adapter (env-configured):
+export CUMCP_REMOTE_WINDOWS_SSH=goldagent-151          # any ssh alias
+export CUMCP_REMOTE_WINDOWS_ROOT='C:\Users\gold\win-remote'
+node dist/index.js    # target { "type": "remote", "platform": "windows" }
+```
+
+`run-hidden.vbs` (the queue agent must be windowless — Windows Terminal
+ignores `-WindowStyle Hidden` and a visible console covers the apps you
+are automating):
+
+```vbs
+CreateObject("Wscript.Shell").Run "powershell -NoProfile -ExecutionPolicy Bypass -File C:\Users\<user>\win-remote\queue-agent.ps1", 0, False
+```
+
+Wire protocol: `queue/<id>.cmd.json` in → `results/<id>.json` out (base64
+payloads both ways, UTF-8 clean). Ops: `ping | capture | input | apps |
+uia-tree | uia-action | sysinfo`. Clicks call `SetForegroundWindow` first —
+unfocused/packaged windows drop injected input.
+
+**Verified with this setup**: full vision-driven agent task on the real
+machine — model autonomously computed 7×3=21 in the Windows calculator,
+twice consecutively (`scripts/win-remote/remote-agent-e2e.mjs`).
+
 ## Troubleshooting
 
 - **`powershell.exe not found` / script dir not found** — set
