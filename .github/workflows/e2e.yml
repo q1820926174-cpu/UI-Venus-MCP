@@ -21,9 +21,12 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - uses: pnpm/action-setup@v4
-        with: { version: 10 }
+        with:
+          version: 10
       - uses: actions/setup-node@v4
-        with: { node-version: 22, cache: pnpm }
+        with:
+          node-version: 22
+          cache: pnpm
       - run: pnpm install --frozen-lockfile
       - run: pnpm build
       - run: node scripts/ci/windows-e2e.mjs
@@ -43,9 +46,12 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - uses: pnpm/action-setup@v4
-        with: { version: 10 }
+        with:
+          version: 10
       - uses: actions/setup-node@v4
-        with: { node-version: 22, cache: pnpm }
+        with:
+          node-version: 22
+          cache: pnpm
       - name: X session + GUI tooling
         run: |
           sudo apt-get update
@@ -77,9 +83,12 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - uses: pnpm/action-setup@v4
-        with: { version: 10 }
+        with:
+          version: 10
       - uses: actions/setup-node@v4
-        with: { node-version: 22, cache: pnpm }
+        with:
+          node-version: 22
+          cache: pnpm
       - run: pnpm install --frozen-lockfile
       - run: pnpm build
       - run: npx vitest run tests/e2e/macos-real.test.ts
@@ -92,21 +101,24 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - uses: pnpm/action-setup@v4
-        with: { version: 10 }
+        with:
+          version: 10
       - uses: actions/setup-node@v4
-        with: { node-version: 22, cache: pnpm }
+        with:
+          node-version: 22
+          cache: pnpm
       - run: pnpm install --frozen-lockfile
       - run: pnpm build
       - name: Live grounding smoke (official protocol, real endpoint)
-        if: ${{ secrets.VENUS_API_KEY != '' }}
         env:
-          RUN_VENUS_LIVE: "1"
+          RUN_VENUS_LIVE: ${{ secrets.VENUS_API_KEY != '' && '1' || '' }}
           VENUS_BASE_URL: ${{ secrets.VENUS_BASE_URL }}
           VENUS_API_KEY: ${{ secrets.VENUS_API_KEY }}
           VENUS_MODEL: ${{ secrets.VENUS_MODEL }}
         run: |
+          if [ -z "$VENUS_API_KEY" ]; then
+            echo "VENUS secrets not configured — skipping live job"
+            exit 0
+          fi
           npx tsx scripts/smoke-venus.ts
           npx vitest run tests/e2e/venus-live.test.ts
-      - name: Skip notice
-        if: ${{ secrets.VENUS_API_KEY == '' }}
-        run: echo "VENUS secrets not configured — live job skipped (configure VENUS_API_KEY secret to enable)"
