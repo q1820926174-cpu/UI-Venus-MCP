@@ -88,17 +88,50 @@ export function failFromPs(scriptName: string, r: RunResult): ComputerUseError {
   return new ComputerUseError("internal_error", `${scriptName} failed: ${err || `exit ${r.code}`}`, { details });
 }
 
-/** Parse a script's stdout JSON, throwing honest errors on failure. */
+/**
+ * Parse a script's stdout JSON, throwing honest errors on failure.
+ * Tolerant of stray PS noise before the payload: some hosts emit a bare
+ * value line (e.g. "1") ahead of the JSON — extract the LAST balanced
+ * {...} object and parse that.
+ */
 export function parsePsJson<T>(scriptName: string, r: RunResult): T {
   if (r.code !== 0) throw failFromPs(scriptName, r);
   const text = r.stdout.trim();
   if (!text) throw failFromPs(scriptName, { ...r, code: r.code || 1, stderr: r.stderr || "empty stdout" });
   try {
     return JSON.parse(text) as T;
-  } catch (e) {
+  } catch {
+    const start = text.lastIndexOf("{");
+    if (start >= 0) {
+      // walk back to the outermost brace that still balances to the end
+      for (let i = start; i >= 0; i--) {
+        if (text[i] !== "{") continue;
+        const candidate = text.slice(i);
+        if (isBalancedJson(candidate)) {
+          try {
+            return JSON.parse(candidate) as T;
+          } catch {
+            /* keep scanning outward */
+          }
+        }
+      }
+    }
     throw new ComputerUseError("internal_error", `${scriptName}: stdout is not valid JSON`, {
       details: { excerpt: text.slice(0, 400) },
-      cause: e,
     });
   }
+}
+
+function isBalancedJson(s: string): boolean {
+  let depth = 0;
+  let inStr = false;
+  let esc = false;
+  for (const ch of s) {
+    if (esc) { esc = false; continue; }
+    if (ch === "\\" && inStr) { esc = true; continue; }
+    if (ch === '"') inStr = !inStr;
+    else if (!inStr && ch === "{") depth++;
+    else if (!inStr && ch === "}") { depth--; if (depth === 0) return true; }
+  }
+  return false;
 }
