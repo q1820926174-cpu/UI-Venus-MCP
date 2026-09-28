@@ -128,14 +128,24 @@ jobs:
       - run: pnpm build
       - name: Live grounding smoke (official protocol, real endpoint)
         env:
-          RUN_VENUS_LIVE: ${{ secrets.VENUS_API_KEY != '' && '1' || '' }}
-          VENUS_BASE_URL: ${{ secrets.VENUS_BASE_URL }}
+          RUN_VENUS_LIVE: "1"
+          VENUS_TUNNEL_URL: ${{ vars.VENUS_TUNNEL_URL }}
+          VENUS_DIRECT_URL: ${{ secrets.VENUS_BASE_URL }}
           VENUS_API_KEY: ${{ secrets.VENUS_API_KEY }}
           VENUS_MODEL: ${{ secrets.VENUS_MODEL }}
+          VENUS_ALLOW_INSECURE_HTTP: "true"
         run: |
           if [ -z "$VENUS_API_KEY" ]; then
             echo "VENUS secrets not configured — skipping live job"
             exit 0
+          fi
+          # prefer the runner-reachable tunnel; fall back to the direct endpoint
+          if [ -n "$VENUS_TUNNEL_URL" ]; then
+            export VENUS_BASE_URL="$VENUS_TUNNEL_URL/v1"
+            echo "endpoint mode: TUNNEL"
+          else
+            export VENUS_BASE_URL="$VENUS_DIRECT_URL"
+            echo "endpoint mode: DIRECT"
           fi
           npx tsx scripts/smoke-venus.ts
           npx vitest run tests/e2e/venus-live.test.ts
