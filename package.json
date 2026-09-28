@@ -1,6 +1,6 @@
 {
   "name": "ui-venus-mcp",
-  "version": "0.2.0",
+  "version": "0.2.1",
   "description": "Cross-Platform Computer-Use MCP — unified, structure-first, vision-fallback GUI automation for any AI agent, powered by pluggable vision providers (UI-Venus-2-9B default).",
   "type": "module",
   "license": "MIT",

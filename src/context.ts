@@ -3,7 +3,11 @@
  * orchestrator, DSL runner and recorder registry — one instance per
  * server process, shared across transports.
  */
+import { createRequire } from "node:module";
 import { loadConfig, type ServerConfig } from "./config.js";
+
+/** Single source of truth: package.json version (read at runtime). */
+const SERVER_VERSION = createRequire(import.meta.url)("../package.json").version as string;
 import { PlatformRouter, type AdapterRegistration } from "./platforms/router.js";
 import { createDefaultProvider } from "./providers/registry.js";
 import type { ComputerVisionProvider } from "./providers/types.js";
@@ -53,7 +57,7 @@ export async function buildContext(overrides?: {
     dsl,
     uiTest,
     recorders: new Map<string, Recorder>(),
-    version: "0.1.0",
+    version: SERVER_VERSION,
   };
 }
 
