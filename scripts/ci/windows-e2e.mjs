@@ -106,16 +106,23 @@ hard("uia-tree-editable-found", !!editable, editable ? { role: editable.role, na
 if (editable) {
   const payload = "UIVENUS-CI-写入测试-123";
   const r = await adapter.executeAction(parseAction({ type: "set_value", element: editable, value: payload }));
-  const obs2 = await adapter.observe({ includeScreenshot: false, includeUITree: true, maxTreeDepth: 14 });
+  // RuntimeIds are unstable ACROSS powershell processes (known): re-find the
+  // editable by ROLE in a fresh window-scoped tree, not by element id
+  const obs2 = await adapter.observe({
+    includeScreenshot: false,
+    includeUITree: true,
+    maxTreeDepth: 14,
+    ...(target?.title ? { windowTitle: target.title } : {}),
+  });
   let after;
   const walk2 = (n) => {
     if (after || !n) return;
-    if (n.id === editable.id) { after = n; return; }
+    if ((n.editable || /edit|document/i.test(n.role ?? "")) && n !== obs2.uiTree) { after = n; return; }
     for (const c of n.children ?? []) walk2(c);
   };
   walk2(obs2.uiTree);
   const ok = r.ok && (after?.value ?? "").includes(payload.slice(0, 12));
-  hard("semantic-setvalue-readback", ok, { executed: r.ok, method: r.method, value: (after?.value ?? "").slice(0, 40), error: r.error?.message });
+  hard("semantic-setvalue-readback", ok, { executed: r.ok, method: r.method, value: (after?.value ?? "").slice(0, 40), ridChanged: after ? after.id !== editable.id : null, error: r.error?.message });
 }
 
 // ---- real capture (non-black)
