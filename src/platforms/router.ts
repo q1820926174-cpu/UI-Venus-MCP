@@ -11,12 +11,13 @@ import { evaluateDevice } from "../orchestrator/security.js";
 import type { SecurityConfig } from "../orchestrator/security.js";
 import type { PlatformAdapter } from "./adapter.js";
 
-export type AdapterFactory = () => Promise<PlatformAdapter>;
 
 export interface AdapterRegistration {
   platform: Platform | "mock";
-  /** Builds an adapter instance for a resolved target. May return null when the current host can't serve this platform. */
-  factory: AdapterFactory;
+  /** Builds an adapter instance for a resolved target (remote-aware factories
+   *  dispatch on target.sshHost/deviceId). May return null when the current
+   *  host can't serve this platform. */
+  factory: (target?: Target) => Promise<PlatformAdapter>;
   /** Cheap availability probe for list_targets (must not throw). */
   probe(): Promise<{ available: boolean; reason?: string; details?: Record<string, unknown> }>;
 }
@@ -109,7 +110,7 @@ export class PlatformRouter {
     const existing = this.sessions.get(sessionId);
     if (existing) return existing;
 
-    const adapter = await reg.factory();
+    const adapter = await reg.factory(target);
     // The router assigns the canonical session id so identical adapters
     // serving different deviceIds remain distinguishable (spec §41).
     const info = { ...(await adapter.open()), id: sessionId };

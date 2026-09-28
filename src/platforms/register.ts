@@ -77,27 +77,43 @@ export async function adapterRegistrations(): Promise<AdapterRegistration[]> {
       });
     }
   } else {
-    // Non-Windows hosts: a REMOTE Windows target is servable over SSH when
-    // the session-1 queue bridge is configured (spec §13 architecture —
-    // the MCP stays local, the target only runs inbox PowerShell bridges).
-    const remoteSsh = process.env.CUMCP_REMOTE_WINDOWS_SSH;
-    if (remoteSsh) {
-      const remoteRoot = process.env.CUMCP_REMOTE_WINDOWS_ROOT ?? "C:\\Users\\gold\\win-remote";
+    // Non-Windows hosts: remote targets over SSH (the PRIMARY use case —
+    // spec §13: MCP stays local, the target only runs inbox bridges).
+    // Named remotes come from CUMCP_REMOTES; the single-target shorthand
+    // (CUMCP_REMOTE_WINDOWS_SSH) still works.
+    const { parseRemotes } = await import("../remote/registry.js");
+    const remotes = parseRemotes().filter((r) => r.platform === "windows");
+    if (remotes.length > 0) {
+      const pick = (target?: { host?: string; deviceId?: string }): typeof remotes[number] => {
+        const wanted = target?.host ?? target?.deviceId;
+        return remotes.find((r) => r.sshHost === wanted || r.name === wanted) ?? remotes[0]!;
+      };
       regs.push({
         platform: "windows",
-        factory: async () => {
+        factory: async (target) => {
           const { RemoteWindowsAdapter } = await import("./windows/remote-ssh.js");
-          return new RemoteWindowsAdapter({ sshHost: remoteSsh, remoteRoot });
+          const r = pick(target);
+          return new RemoteWindowsAdapter({ sshHost: r.sshHost, remoteRoot: r.root, sshArgs: r.sshArgs });
         },
         probe: async () => {
-          try {
-            const { RemoteWindowsAdapter } = await import("./windows/remote-ssh.js");
-            const a = new RemoteWindowsAdapter({ sshHost: remoteSsh, remoteRoot });
-            const info = await a.open();
-            return { available: true, details: info.details as Record<string, unknown> };
-          } catch (e) {
-            return { available: false, reason: (e as Error).message };
+          const statuses: Record<string, string> = {};
+          let anyUp = false;
+          for (const r of remotes) {
+            try {
+              const { RemoteWindowsAdapter } = await import("./windows/remote-ssh.js");
+              const a = new RemoteWindowsAdapter({ sshHost: r.sshHost, remoteRoot: r.root });
+              await a.open();
+              statuses[r.name] = "up";
+              anyUp = true;
+            } catch (e) {
+              statuses[r.name] = (e as Error).message.slice(0, 120);
+            }
           }
+          return {
+            available: anyUp,
+            reason: anyUp ? undefined : "no remote bridge reachable — run scripts/win-remote/bootstrap-remote.mjs <ssh-alias>",
+            details: { remotes: statuses },
+          };
         },
       });
     } else {
@@ -108,12 +124,12 @@ export async function adapterRegistrations(): Promise<AdapterRegistration[]> {
           throw new (await import("../core/errors.js")).ComputerUseError(
             "unsupported",
             "Local Windows target requires running the MCP server on Windows",
-            { hint: "Run ui-venus-mcp on the Windows machine, or set CUMCP_REMOTE_WINDOWS_SSH to drive a remote host over SSH (docs/install/windows.md)." },
+            { hint: "Run ui-venus-mcp on the Windows machine, or configure CUMCP_REMOTES for remote-SSH control (docs/remote-targets.md)." },
           );
         },
         probe: async () => ({
           available: false,
-          reason: `host platform is ${process.platform}; set CUMCP_REMOTE_WINDOWS_SSH for remote-SSH control, or run the MCP on Windows`,
+          reason: `host platform is ${process.platform}; configure CUMCP_REMOTES (see docs/remote-targets.md) or run the MCP on Windows`,
         }),
       });
     }

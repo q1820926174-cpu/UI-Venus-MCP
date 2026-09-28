@@ -17,8 +17,6 @@
 import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { execFile } from "node:child_process";
-import { promisify } from "node:util";
 import type { PlatformAdapter, ObserveOptions, ScreenshotOptions, LaunchOptions } from "../adapter.js";
 import type {
   Action,
@@ -38,9 +36,10 @@ import type {
 import { ComputerUseError } from "../../core/errors.js";
 import { processScreenshot } from "../../screenshot/pipeline.js";
 import { parseUiTreeJson, buildUiTree, locateInElements, elementToRef } from "./ui-tree.js";
+import { SshQueueConnector } from "../../remote/ssh-queue.js";
+import type { BridgeResult, RemoteConnector } from "../../remote/types.js";
 
-const exec = promisify(execFile);
-
+/** @deprecated inject via options.exec — kept for driver/test compatibility */
 export type ExecFn = (cmd: string, args: string[]) => Promise<{ stdout: string; stderr: string }>;
 
 export interface RemoteWindowsOptions {
@@ -54,16 +53,6 @@ export interface RemoteWindowsOptions {
   exec?: ExecFn;
 }
 
-interface BridgeResult {
-  id: string;
-  ok: boolean;
-  exit: number;
-  json?: unknown;
-  stdout: string;
-  stderr: string;
-  at: string;
-}
-
 function toWinPath(root: string, rel: string): string {
   return `${root}\\${rel.replace(/\//g, "\\")}`;
 }
@@ -72,89 +61,35 @@ export class RemoteWindowsAdapter implements PlatformAdapter {
   readonly platform = "windows";
   private info!: TargetInfo;
   private caps!: Capabilities;
-  private seq = 0;
   private screen?: { width: number; height: number };
-  private readonly execFn: ExecFn;
-  private readonly sshBase: string[];
+  private readonly connector: RemoteConnector;
 
-  constructor(private readonly opts: RemoteWindowsOptions) {
-    this.execFn = opts.exec ?? ((cmd, args) => exec(cmd, args, { timeout: 30_000, maxBuffer: 64 * 1024 * 1024 }));
-    this.sshBase = ["-o", "BatchMode=yes", "-o", "ConnectTimeout=10", ...(opts.sshArgs ?? [])];
+  constructor(opts: RemoteWindowsOptions, connector?: RemoteConnector) {
+    this.connector =
+      connector ??
+      new SshQueueConnector({
+        sshHost: opts.sshHost,
+        remoteRoot: opts.remoteRoot,
+        sshArgs: opts.sshArgs,
+        exec: opts.exec,
+      });
+    this.opts = opts;
   }
-
-  private async ssh(command: string): Promise<string> {
-    const { stdout } = await this.execFn("ssh", [...this.sshBase, this.opts.sshHost, command]);
-    return stdout;
-  }
+  private readonly opts: RemoteWindowsOptions;
 
   /** Escape hatch for driver scripts: run any bridge op directly. */
   async bridgeCommand(op: string, extra: Record<string, unknown> = {}, timeoutMs = 45_000): Promise<BridgeResult> {
-    return this.command(op, extra, timeoutMs);
-  }
-
-  private async scpFrom(remotePath: string, localPath: string): Promise<void> {
-    await this.execFn("scp", [...this.sshBase, `${this.opts.sshHost}:${remotePath.replace(/\\/g, "/")}`, localPath]);
-  }
-
-  /** Encode a PowerShell snippet as -EncodedCommand (UTF-16LE base64). */
-  private static encoded(ps: string): string {
-    return Buffer.from(ps, "utf16le").toString("base64");
+    return this.connector.command(op, extra, timeoutMs);
   }
 
   /** Enqueue one op and await its result JSON. */
   private async command(op: string, extra: Record<string, unknown> = {}, timeoutMs = 30_000): Promise<BridgeResult> {
-    const id = `r${Date.now().toString(36)}${(this.seq++).toString(36)}`;
-    const cmdFile = toWinPath(this.opts.remoteRoot, `queue\\${id}.cmd.json`);
-    const resFile = toWinPath(this.opts.remoteRoot, `results\\${id}.json`);
-    const payload = JSON.stringify({ id, op, ...extra });
-    const b64 = Buffer.from(payload, "utf8").toString("base64");
-    const ps = `Set-Content -Path '${cmdFile}' -Value ([Text.Encoding]::UTF8.GetString([Convert]::FromBase64String('${b64}'))) -Encoding UTF8`;
-    await this.ssh(`powershell -NoProfile -EncodedCommand ${RemoteWindowsAdapter.encoded(ps)}`);
-
-    const deadline = Date.now() + timeoutMs;
-    let raw = "";
-    while (Date.now() < deadline) {
-      raw = await this.ssh(`powershell -NoProfile -Command "if (Test-Path '${resFile}') { Get-Content -Raw -Encoding UTF8 '${resFile}' } else { 'PENDING' }"`)
-        .then((s) => s.trim())
-        .catch(() => "PENDING");
-      if (raw !== "PENDING" && raw !== "") break;
-      await new Promise((r) => setTimeout(r, 150));
-    }
-    if (raw === "PENDING" || raw === "") {
-      throw new ComputerUseError("timeout", `bridge command ${op} timed out after ${timeoutMs}ms`, {
-        hint: "Is the session-1 queue agent running? (schtasks /run /tn uivenus-bridge)",
-      });
-    }
-    // strip BOM; PS 5.1 ConvertTo-Json emits valid (spacious) JSON
-    const cleaned = raw.replace(/^\uFEFF/, "");
-    let parsed: BridgeResult;
-    try {
-      parsed = JSON.parse(cleaned) as BridgeResult;
-    } catch {
-      throw new ComputerUseError("provider_error", `bridge result unparseable for ${op}: ${cleaned.slice(0, 160)}`);
-    }
-    if (!parsed.ok && parsed.exit !== 0) {
-      const msg = (parsed.stderr || parsed.stdout || `exit ${parsed.exit}`).slice(0, 200);
-      const code = /CAPTURE_FAILED/.test(msg)
-        ? "restricted"
-        : /INPUT_FAILED/.test(msg)
-          ? "restricted"
-          : /PROCESS_NOT_FOUND|ELEMENT_NOT_FOUND/.test(msg)
-            ? "element_not_found"
-            : "internal_error";
-      throw new ComputerUseError(code, `remote ${op} failed: ${msg}`);
-    }
-    return parsed;
+    return this.connector.command(op, extra, timeoutMs);
   }
 
   async open(): Promise<TargetInfo> {
-    // liveness + session reality
-    const ping = await this.command("ping", {}, 15_000).catch((e: Error) => {
-      throw new ComputerUseError("device_offline", `Windows bridge unreachable: ${e.message}`, {
-        hint: "Start it in the interactive session: schtasks /run /tn uivenus-bridge (see scripts/win-remote/README.md)",
-      });
-    });
-    void ping;
+    // liveness + session reality (connector.ping maps to device_offline)
+    await this.connector.ping(15_000);
     let info: { virtualScreen?: { width?: number; height?: number } } = {};
     try {
       const sys = await this.command("sysinfo");
@@ -206,7 +141,7 @@ export class RemoteWindowsAdapter implements PlatformAdapter {
   }
 
   async screenshot(options: ScreenshotOptions = {}): Promise<Screenshot> {
-    const id = `s${Date.now().toString(36)}${(this.seq++).toString(36)}`;
+    const id = `s${Date.now().toString(36)}${Math.random().toString(36).slice(2, 6)}`;
     const rel = `results\\${id}.png`;
     const extra: Record<string, unknown> = { out: toWinPath(this.opts.remoteRoot, rel) };
     if (options.region) extra.args = { region: options.region };
@@ -214,7 +149,7 @@ export class RemoteWindowsAdapter implements PlatformAdapter {
     const dir = await mkdtemp(join(tmpdir(), "cumcp-rw-"));
     const local = join(dir, "shot.png");
     try {
-      await this.scpFrom(toWinPath(this.opts.remoteRoot, rel), local);
+      await this.connector.fetchBinary(toWinPath(this.opts.remoteRoot, rel), local);
       const raw = await readFile(local);
       const shot = processScreenshot(raw, {
         targetId: this.info?.id ?? "remote-windows",

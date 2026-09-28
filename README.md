@@ -1,6 +1,13 @@
 # UI-Venus MCP
 
-**A cross-platform Computer-Use MCP server for AI agents** — unified GUI automation across Windows, Linux, macOS, Android, iOS and browsers. Structured APIs first (UIA / AX / AT-SPI / UIAutomator / XCUITest / DOM), vision grounding as the fallback, with [UI-Venus-2-9B](https://github.com/rocktreehold/UI-Venus) (W8A8 quantized build verified) as the default — and pluggable — vision provider.
+**A remote-first, cross-platform Computer-Use MCP server for AI agents** — unified GUI automation across Windows, Linux, macOS, Android, iOS and browsers. Its primary job is **not** the local machine: it drives remote, awkwardly-accessed targets (SSH-only intranet hosts, no-internet boxes, locked-down sessions) with zero installs on the target side. Structured APIs first (UIA / AX / AT-SPI / UIAutomator / XCUITest / DOM), vision grounding as the fallback, with [UI-Venus-2-9B](https://modelscope.cn/models/inclusionAI/UI-Venus-2-9B) (official protocol, W8A8 build verified) as the default — and pluggable — vision provider.
+
+> **Remote targets are the main path**: one command onboards a new Windows
+> host (`scripts/win-remote/bootstrap-remote.mjs`), one env var registers
+> any number of them (`CUMCP_REMOTES`). Verified on real hardware: the
+> vision agent autonomously computed 7×3=21 on a remote, intranet,
+> SSH-only Windows 11 box — twice. Full playbook:
+> [docs/remote-targets.md](docs/remote-targets.md).
 
 > **中文文档**：[docs/README.zh-CN.md](docs/README.zh-CN.md)
 

@@ -124,11 +124,29 @@ The router keys sessions by `platform:deviceId` and assigns canonical
 session ids; per-session state (history, recordings, screenshots) never
 crosses devices. Device allowlists gate access.
 
+## Remote-first design (spec §13 made primary)
+
+Most targets are NOT the local machine. The remote layer
+(`src/remote/`) separates transport from platform semantics:
+
+```text
+RemoteConnector (interface)          SshQueueConnector (reference impl)
+  command(op, extra, timeout)          ssh + file queue + wscript hidden agent
+  fetchBinary(path, local)             scp
+  ping()                               queue ping
+```
+
+Platform adapters consume connectors (`RemoteWindowsAdapter` today);
+`CUMCP_REMOTES` names any number of hosts and the router dispatches by
+target host/name. The bridge protocol, environment quirks it absorbs and
+the onboarding playbook: [remote-targets.md](remote-targets.md).
+
 ## Extension points
 
 | Want to add… | Do this |
 |---|---|
 | A new vision model | Implement `ComputerVisionProvider`, register in `src/providers/registry.ts` |
-| A new platform (RDP/VNC/VM/cloud desktop) | Implement `PlatformAdapter`, add an entry in `src/platforms/register.ts`; `remote|vm` targets already parse |
+| A new remote transport (RDP/VNC/SPICE/serial/cloud desktop) | Implement `RemoteConnector` + add the `kind` in `src/remote/registry.ts`; wire a platform adapter that consumes it |
+| A new local platform | Implement `PlatformAdapter`, add an entry in `src/platforms/register.ts`; `remote|vm` targets already parse |
 | New unified actions | Extend the zod union + `ACTION_TYPES`; adapters map them natively |
 | Transport (WebSocket, etc.) | `src/index.ts` — transports are independent of tool logic |
