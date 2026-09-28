@@ -77,7 +77,12 @@ if (target?.bounds) {
 }
 
 // ---- tree: find an editable element by ROLE (locale-proof) with diagnostics
-const obs = await adapter.observe({ includeScreenshot: false, includeUITree: true, maxTreeDepth: 14 });
+const obs = await adapter.observe({
+  includeScreenshot: false,
+  includeUITree: true,
+  maxTreeDepth: 14,
+  ...(target?.title ? { windowTitle: target.title } : {}), // scope UIA to OUR window, not whatever is foreground
+});
 let editable;
 let nodeCount = 0;
 const roleCensus = {};

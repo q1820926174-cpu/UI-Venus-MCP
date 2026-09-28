@@ -280,7 +280,11 @@ export class WindowsAdapter implements PlatformAdapter {
 
     let uiTree: UINode | undefined;
     if (options.includeUITree !== false && this.caps.accessibility) {
-      const scope: UiaScope = fg?.pid ? { pid: fg.pid } : { desktopRoot: true };
+      const scope: UiaScope = options.windowTitle
+        ? { windowTitle: options.windowTitle }
+        : fg?.pid
+          ? { pid: fg.pid }
+          : { desktopRoot: true };
       try {
         this.lastTree = await readUiTree({
           ...scope,

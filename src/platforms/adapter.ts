@@ -26,6 +26,9 @@ export interface ObserveOptions {
   maxTreeDepth?: number;
   /** "window": capture the frontmost app's window region (better vision legibility for small windows); default "screen" */
   scope?: "window" | "screen";
+  /** observe a SPECIFIC window's subtree instead of the foreground one
+   *  (multi-window desktops; windowTitle matches substring, any locale) */
+  windowTitle?: string;
 }
 
 export interface ScreenshotOptions {
