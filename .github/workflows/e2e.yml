@@ -29,6 +29,13 @@ jobs:
           cache: pnpm
       - run: pnpm install --frozen-lockfile
       - run: pnpm build
+      - name: Raw bridge diagnostics (why does input.ps1 fail on runners?)
+        shell: powershell
+        run: |
+          $b64 = [Convert]::ToBase64String([Text.Encoding]::UTF8.GetBytes('{"x":200,"y":200}'))
+          & powershell -NoProfile -ExecutionPolicy Bypass -File src/platforms/windows/scripts/input.ps1 -Mode move -ArgsJson $b64
+          Write-Output "exit=$LASTEXITCODE"
+          $PSVersionTable.PSVersion
       - run: node scripts/ci/windows-e2e.mjs
       - name: artifacts
         if: always()
