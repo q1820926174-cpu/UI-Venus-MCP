@@ -110,8 +110,10 @@ jobs:
   venus-live:
     runs-on: ubuntu-latest
     timeout-minutes: 15
-    # The reference endpoint sits behind filtering that GitHub's runner
-    # IP ranges cannot reach — keep the job informative, not blocking.
+    # GitHub runner IP ranges cannot reach the reference endpoint directly;
+    # CI uses the temporary trycloudflare tunnel published in the
+    # VENUS_TUNNEL_URL repo variable (scripts/dev/venus-tunnel.mjs manages
+    # it). Keep non-blocking until the tunnel is proven from runners.
     continue-on-error: true
     steps:
       - uses: actions/checkout@v4
