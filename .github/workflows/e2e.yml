@@ -1,0 +1,112 @@
+name: Real-platform E2E
+
+# Real-machine testing on GitHub's free runners (open-source repos):
+#   windows-real : true Windows desktop — adapter-level closed loop
+#                  (charmap → UIA → semantic write → capture)
+#   linux-real   : genuine X session (Xvfb) — wmctrl/xdotool/capture E2E
+#   macos-real   : real macOS, permission-gated honest suite (never red
+#                  just because TCC is missing — only on real breakage)
+#   venus-live   : official-protocol grounding against the real endpoint
+#                  (secrets-gated; skipped cleanly when not configured)
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  windows-real:
+    runs-on: windows-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+        with: { version: 10 }
+      - uses: actions/setup-node@v4
+        with: { node-version: 22, cache: pnpm }
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm build
+      - run: node scripts/ci/windows-e2e.mjs
+      - name: artifacts
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: win-real-report
+          path: |
+            ci-win-report.json
+            ci-win-shot.png
+          if-no-files-found: ignore
+
+  linux-real:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+        with: { version: 10 }
+      - uses: actions/setup-node@v4
+        with: { node-version: 22, cache: pnpm }
+      - name: X session + GUI tooling
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y xvfb x11-apps x11-utils xdotool wmctrl imagemagick
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm build
+      - name: Run E2E under Xvfb
+        run: |
+          Xvfb :99 -screen 0 1280x800x24 &
+          export DISPLAY=:99
+          sleep 2
+          xclock -geometry 200x200+50+50 &    # real GUI target for wmctrl/capture
+          xterm -geometry 80x24+300+200 &     # (x11-apps may lack xterm; ignore)
+          sleep 2
+          node scripts/ci/linux-e2e.mjs
+      - name: artifacts
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: linux-real-report
+          path: |
+            ci-linux-report.json
+            ci-linux-shot.png
+          if-no-files-found: ignore
+
+  macos-real:
+    runs-on: macos-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+        with: { version: 10 }
+      - uses: actions/setup-node@v4
+        with: { node-version: 22, cache: pnpm }
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm build
+      - run: npx vitest run tests/e2e/macos-real.test.ts
+        env:
+          RUN_MACOS_E2E: "1"
+
+  venus-live:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+        with: { version: 10 }
+      - uses: actions/setup-node@v4
+        with: { node-version: 22, cache: pnpm }
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm build
+      - name: Live grounding smoke (official protocol, real endpoint)
+        if: ${{ secrets.VENUS_API_KEY != '' }}
+        env:
+          RUN_VENUS_LIVE: "1"
+          VENUS_BASE_URL: ${{ secrets.VENUS_BASE_URL }}
+          VENUS_API_KEY: ${{ secrets.VENUS_API_KEY }}
+          VENUS_MODEL: ${{ secrets.VENUS_MODEL }}
+        run: |
+          npx tsx scripts/smoke-venus.ts
+          npx vitest run tests/e2e/venus-live.test.ts
+      - name: Skip notice
+        if: ${{ secrets.VENUS_API_KEY == '' }}
+        run: echo "VENUS secrets not configured — live job skipped (configure VENUS_API_KEY secret to enable)"
