@@ -133,6 +133,32 @@ export function toScreenshotSpace(p: { x: number; y: number; space?: string }, s
   return convertPoint(p, (p.space ?? "screenshot") as CoordinateSpace, "screenshot", { screenshot: shot });
 }
 
+/**
+ * Convert a point in SCREENSHOT pixel space to the platform's PHYSICAL
+ * screen space, honoring the capture's origin (window/region/multi-display)
+ * and the effective pixel scale (devicePixelRatio × any downscaling).
+ *
+ * This is THE single conversion every adapter must use — ad-hoc math here
+ * caused real misclicks (micro-UI stress: 18/18 pixel-guided clicks missed
+ * when scale composition was handled loosely).
+ */
+export function screenshotPointToPhysical(p: Point, shot: Screenshot): Point {
+  const scale = shot.scale > 0 ? shot.scale : 1;
+  return {
+    x: shot.origin.x + p.x / scale,
+    y: shot.origin.y + p.y / scale,
+  };
+}
+
+/** Inverse: physical screen point → screenshot pixel space (for evidence/anchoring). */
+export function physicalPointToScreenshot(p: Point, shot: Screenshot): Point {
+  const scale = shot.scale > 0 ? shot.scale : 1;
+  return {
+    x: (p.x - shot.origin.x) * scale,
+    y: (p.y - shot.origin.y) * scale,
+  };
+}
+
 export function rectCenter(r: Rect): Point {
   return { x: r.x + r.width / 2, y: r.y + r.height / 2 };
 }

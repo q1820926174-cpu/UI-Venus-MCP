@@ -14,6 +14,9 @@
  * stagnation guard, honest BLOCKED vs FAILED, cancellation.
  */
 import { randomUUID } from "node:crypto";
+import { mkdirSync, existsSync, readFileSync, writeFileSync, readdirSync, statSync, unlinkSync } from "node:fs";
+import { join } from "node:path";
+import { homedir } from "node:os";
 import type { ServerConfig } from "../config.js";
 import { ComputerUseError } from "../core/errors.js";
 import { TaskStateMachine, type TaskState } from "../core/state-machine.js";
@@ -67,24 +70,80 @@ export interface ExecuteTaskOptions {
 export class TaskOrchestrator {
   private tasks = new Map<string, { record: TaskRecord; sm: TaskStateMachine; cancelRequested: boolean; runner?: Promise<TaskRecord> }>();
   readonly confirmations = new ConfirmationRegistry();
+  /** task records survive MCP reconnects (client timeouts restart this
+   *  process mid-flight — in-memory-only tasks were lost twice in testing) */
+  private readonly taskDir: string;
 
   constructor(
     private readonly router: PlatformRouter,
     private readonly provider: ComputerVisionProvider,
     private readonly cfg: ServerConfig,
-  ) {}
+    dataDir?: string,
+  ) {
+    this.taskDir = dataDir ?? process.env.CUMCP_DATA_DIR ?? join(homedir(), ".cumcp", "tasks");
+    try {
+      mkdirSync(this.taskDir, { recursive: true });
+    } catch { /* read-only fs → persistence disabled, memory still works */ }
+  }
 
-  listTasks(): TaskRecord[] {
-    return [...this.tasks.values()].map((t) => ({ ...t.record }));
+  private persist(record: TaskRecord): void {
+    try {
+      writeFileSync(join(this.taskDir, `${record.id}.json`), JSON.stringify(record));
+    } catch { /* best-effort */ }
+  }
+
+  private pruneArchived(keep = 200): void {
+    try {
+      const files = readdirSync(this.taskDir)
+        .filter((f) => f.endsWith(".json"))
+        .map((f) => ({ f, mtime: statSync(join(this.taskDir, f)).mtimeMs }))
+        .sort((a, b) => b.mtime - a.mtime);
+      for (const { f } of files.slice(keep)) {
+        try { unlinkSync(join(this.taskDir, f)); } catch { /* ignore */ }
+      }
+    } catch { /* ignore */ }
+  }
+
+  private loadFromDisk(id: string): TaskRecord | undefined {
+    try {
+      const f = join(this.taskDir, `${id}.json`);
+      if (!existsSync(f)) return undefined;
+      return JSON.parse(readFileSync(f, "utf8")) as TaskRecord;
+    } catch {
+      return undefined;
+    }
+  }
+
+  listTasks(limit = 20): TaskRecord[] {
+    const live = [...this.tasks.values()].map((t) => ({ ...t.record }));
+    const liveIds = new Set(live.map((r) => r.id));
+    const archived: TaskRecord[] = [];
+    try {
+      const files = readdirSync(this.taskDir)
+        .filter((f) => f.endsWith(".json"))
+        .map((f) => ({ f, mtime: statSync(join(this.taskDir, f)).mtimeMs }))
+        .sort((a, b) => b.mtime - a.mtime)
+        .slice(0, limit);
+      for (const { f } of files) {
+        try {
+          const rec = JSON.parse(readFileSync(join(this.taskDir, f), "utf8")) as TaskRecord;
+          if (!liveIds.has(rec.id)) archived.push(rec);
+        } catch { /* corrupt file — skip */ }
+      }
+    } catch { /* dir unreadable */ }
+    return [...live, ...archived].slice(0, limit);
   }
 
   getTask(id: string): TaskRecord | undefined {
-    return this.tasks.get(id)?.record;
+    const live = this.tasks.get(id)?.record;
+    if (live) return { ...live };
+    // reconnect recovery: the task may belong to a previous server process
+    return this.loadFromDisk(id);
   }
 
   cancelTask(id: string): boolean {
     const t = this.tasks.get(id);
-    if (!t) return false;
+    if (!t) return false; // archived (disk-only) tasks cannot be cancelled
     t.cancelRequested = true;
     if (t.record.state === "WAITING_CONFIRMATION" && t.record.pendingConfirmation) {
       this.confirmations.cancel(t.record.pendingConfirmation.token);
@@ -119,6 +178,8 @@ export class TaskOrchestrator {
       cancelRequested: false,
     };
     this.tasks.set(id, entry);
+    this.persist(record);
+    this.pruneArchived();
 
     // Confirmation fast-path: resume a parked action.
     if (opts.confirmToken) {
@@ -137,6 +198,7 @@ export class TaskOrchestrator {
       record.error = { code: err.code, message: err.message, hint: err.hint };
       record.outcome = { status: record.state === "BLOCKED" ? "BLOCKED" : "FAILED", reason: err.message };
       record.finishedAt = Date.now();
+      this.persist(record);
       return record;
     });
     entry.runner = runner;
@@ -477,6 +539,7 @@ export class TaskOrchestrator {
   private snapshot(entry: { record: TaskRecord; sm: TaskStateMachine }): TaskRecord {
     entry.record.state = entry.sm.state;
     entry.record.updatedAt = Date.now();
+    this.persist(entry.record);
     return { ...entry.record };
   }
 }

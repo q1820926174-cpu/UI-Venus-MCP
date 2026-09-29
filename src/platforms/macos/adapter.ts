@@ -24,6 +24,7 @@ import {
 import type { Action, ActionResult } from "../../core/types-action.js";
 import { ComputerUseError, permissionRequired, unsupported } from "../../core/errors.js";
 import { processScreenshot } from "../../screenshot/pipeline.js";
+import { screenshotPointToPhysical } from "../../coordinate/index.js";
 import type { ProcessOptions } from "../../screenshot/pipeline.js";
 import type { ObserveOptions, PlatformAdapter, ScreenshotOptions, LaunchOptions } from "../adapter.js";
 import { osascript } from "../exec.js";
@@ -466,8 +467,9 @@ export class MacosAdapter implements PlatformAdapter {
     if (space === "screenshot") {
       const shot = this.lastShot;
       if (!shot) return { x: p.x, y: p.y };
-      const scale = shot.scale > 0 ? shot.scale : 1;
-      return { x: shot.origin.x + p.x / scale, y: shot.origin.y + p.y / scale };
+      // macOS physical == logical points (scale on shots is capture density);
+      // screenshot→logical equals screenshot→physical here
+      return screenshotPointToPhysical(p, shot);
     }
     if (space === "physical") {
       const scale = this.displays.find((d) => d.primary)?.scale ?? 1;

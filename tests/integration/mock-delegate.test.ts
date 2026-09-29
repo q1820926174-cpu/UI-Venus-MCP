@@ -26,7 +26,11 @@ function build(script = {}) {
   router.register(reg);
   const provider = new MockProvider(script);
   const cfg = loadConfig();
-  const orch = new TaskOrchestrator(router, provider, cfg);
+  // isolated per-build data dir: listTasks() now merges persisted history
+  const { mkdtempSync } = require("node:fs") as typeof import("node:fs");
+  const { tmpdir } = require("node:os") as typeof import("node:os");
+  const { join } = require("node:path") as typeof import("node:path");
+  const orch = new TaskOrchestrator(router, provider, cfg, mkdtempSync(join(tmpdir(), "cumcp-test-")));
   return { adapter, router, provider, orch, cfg };
 }
 

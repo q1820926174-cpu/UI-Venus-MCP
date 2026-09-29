@@ -35,6 +35,7 @@ import type {
 } from "../../core/types.js";
 import { ComputerUseError } from "../../core/errors.js";
 import { processScreenshot } from "../../screenshot/pipeline.js";
+import { screenshotPointToPhysical } from "../../coordinate/index.js";
 import { parseUiTreeJson, buildUiTree, locateInElements, elementToRef } from "./ui-tree.js";
 import { SshQueueConnector } from "../../remote/ssh-queue.js";
 import type { BridgeResult, RemoteConnector } from "../../remote/types.js";

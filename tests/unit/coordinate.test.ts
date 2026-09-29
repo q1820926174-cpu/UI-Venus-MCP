@@ -10,6 +10,8 @@ import {
   rectCenter,
   pointInRect,
   distance,
+  screenshotPointToPhysical,
+  physicalPointToScreenshot,
 } from "../../src/coordinate/index.js";
 import type { Screenshot } from "../../src/core/types.js";
 
@@ -77,6 +79,32 @@ describe("coordinate transforms (spec §29)", () => {
 
   it("convertPoint rejects zero-scale", () => {
     expect(() => physicalToLogical({ x: 1, y: 1 }, 0)).toThrow();
+  });
+
+  it("screenshotPointToPhysical: the four real capture geometries", () => {
+    // 1) identity — full screen, no downscale, origin 0
+    const id: Screenshot = { ...shot, scale: 1, origin: { x: 0, y: 0 } };
+    expect(screenshotPointToPhysical({ x: 100, y: 200 }, id)).toEqual({ x: 100, y: 200 });
+
+    // 2) full screen downscaled 1920→1600 (scale 0.8333…) — the 151 case
+    const ds: Screenshot = { ...shot, width: 1600, height: 900, scale: 1600 / 1920, origin: { x: 0, y: 0 } };
+    const p2 = screenshotPointToPhysical({ x: 800, y: 450 }, ds);
+    expect(p2.x).toBeCloseTo(960, 5); // 800 / (1600/1920)
+    expect(p2.y).toBeCloseTo(540, 5);
+
+    // 3) window region at (300,150) 400x300 physical, downscaled ×0.5
+    const wr: Screenshot = { ...shot, width: 200, height: 150, scale: 0.5, origin: { x: 300, y: 150 } };
+    const p3 = screenshotPointToPhysical({ x: 100, y: 75 }, wr);
+    expect(p3).toEqual({ x: 300 + 200, y: 150 + 150 }); // center of the region
+
+    // 4) negative multi-monitor origin
+    const neg: Screenshot = { ...shot, scale: 1, origin: { x: -1920, y: 0 } };
+    expect(screenshotPointToPhysical({ x: 96, y: 54 }, neg)).toEqual({ x: -1824, y: 54 });
+
+    // roundtrip
+    const back = physicalPointToScreenshot(p2, ds);
+    expect(back.x).toBeCloseTo(800, 5);
+    expect(back.y).toBeCloseTo(450, 5);
   });
 
   it("rect helpers", () => {
