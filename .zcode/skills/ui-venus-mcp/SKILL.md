@@ -25,6 +25,27 @@ description: Operate local and remote computers' GUIs through the ui-venus-mcp M
 3. **执行**：`computer_action {action:{...}}` — click/double_click/right_click/type/press/hotkey/scroll/drag/launch_app/terminate_app/focus/back/home/wait
 4. **验证**：`computer_verify {goal:"..."}` — 结构化断言优先，视觉判定兜底
 
+## 键盘与点击规则（实机校准，务必遵守）
+
+**先点击，后打字**：键盘输入注入到当前焦点窗口——必须先 click 目标输入框（点击自带置前+聚焦），再 type。不点击直接 type 会全部丢失。
+**点击自动防遮挡**：click 前会自动把"包含目标点的最内层窗口"置前（HWND 级 SetForegroundWindow），被盖住的窗口也能点中。
+**键名**（已归一化，以下别名等价可用）：`win/super/meta/cmd/command`→Win；`return`→enter；`arrowleft/up/right/down`→方向键；F1-F12 ✓；单字符直接传。修饰键：ctrl/alt/shift/win。
+**避免系统级组合**：单按 win=开始菜单（抢焦点）、Win+L=锁屏、Win+D=显示桌面——会破坏会话焦点，别用；需要打开应用直接 launch_app。
+**terminate_app** 名称带不带 .exe 均可。
+**windowTitle 定位**：支持子串匹配（如"计算器"可匹配"标准: 计算器"），失败时错误信息会列出当前可见窗口标题。
+
+## 校对靶场（确定性验收，151 已部署）
+
+`C:\Users\gold\win-remote\calibration.html`（仓库 scripts/win-remote/calibration.html）——大按钮网格(按钮一~六)+输入框+滚动列表，每个事件大字回显（UIA 可读）：
+
+```json
+// 启动（Edge kiosk 全屏置顶）:
+computer_action { target, action:{type:"launch_app", app:"C:\Program Files (x86)\Microsoft\Edge\Application\msedge.exe"} }
+// 或用 bridge apps launch 带 --kiosk 参数
+// 验证闭环: 点击按钮三 → 页面回显 "CLICK 按钮三"（computer_verify 或 UIA 读取）
+```
+已验证通过：元素/坐标点击、中英混排输入(你好Abc123世界)、ctrl+a、enter 提交、F5、滚动 600px、win 别名(win+r 打开运行框)。
+
 ## 自主任务（重要：异步模式）
 
 ```json

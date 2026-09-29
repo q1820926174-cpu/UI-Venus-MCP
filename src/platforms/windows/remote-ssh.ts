@@ -53,6 +53,19 @@ export interface RemoteWindowsOptions {
   exec?: ExecFn;
 }
 
+/**
+ * Normalize model-emitted key names to the Windows bridge vocabulary.
+ * Models freely emit super/meta/cmd/apple (macOS-style) or arrowleft —
+ * map them instead of failing with UNKNOWN_KEY.
+ */
+export function normalizeWinKey(key: string): string {
+  const k = key.toLowerCase().trim();
+  if (["super", "meta", "cmd", "command", "apple", "windows"].includes(k)) return "win";
+  if (k === "return") return "enter";
+  if (k.startsWith("arrow")) return k.slice(5);
+  return k;
+}
+
 function toWinPath(root: string, rel: string): string {
   return `${root}\\${rel.replace(/\//g, "\\")}`;
 }
@@ -165,6 +178,29 @@ export class RemoteWindowsAdapter implements PlatformAdapter {
   }
 
   private lastShot?: Screenshot;
+
+  /**
+   * Foreground the innermost top-level window containing (x, y) — the
+   * smallest window wins (a dialog beats the giant browser behind it).
+   * Uses SetForegroundWindow via the UIA bridge (element-level SetFocus is
+   * rejected for window elements; HWND-level foreground is the reliable way).
+   */
+  private async foregroundWindowAt(p: { x: number; y: number }): Promise<string | null> {
+    const res = await this.command("uia-tree", { args: { desktopRoot: true, maxDepth: 1 } }, 30_000);
+    const wins = JSON.parse(res.stdout) as { role?: string; name?: string; bounds?: { x: number; y: number; width: number; height: number } }[];
+    const containing = (Array.isArray(wins) ? wins : []).filter(
+      (w) => w.role === "ControlType.Window" && w.bounds &&
+        p.x >= w.bounds.x && p.x <= w.bounds.x + w.bounds.width &&
+        p.y >= w.bounds.y && p.y <= w.bounds.y + w.bounds.height && w.bounds.width > 50,
+    );
+    if (containing.length === 0) return null;
+    const target = containing.reduce((a, b) => ((a.bounds!.width * a.bounds!.height) <= (b.bounds!.width * b.bounds!.height) ? a : b));
+    const title = (target.name ?? "").trim();
+    if (!title) return null;
+    await this.command("uia-action", { args: { windowTitle: title, action: "foreground" } }, 20_000).catch(() => null);
+    await new Promise((r) => setTimeout(r, 120));
+    return title;
+  }
   private lastForegroundPid?: number;
 
   /** Foreground window bounds (physical px) via sysinfo→uia-tree, or null. */
@@ -276,11 +312,16 @@ export class RemoteWindowsAdapter implements PlatformAdapter {
           p = this.pointArgs(action as { point?: { x: number; y: number; space?: string } });
         }
         if (!p) throw new ComputerUseError("invalid_request", `${action.type} requires a point or element bounds (remote executor is coordinate-driven; use computer_locate first)`);
+        // Occlusion guard: the desktop stacks many windows — a bare click at
+        // screen coordinates hits whatever is on TOP there. Foreground the
+        // innermost window that contains the target point first, so the click
+        // (and any following typing) lands on the INTENDED window.
+        const focused = await this.foregroundWindowAt(p).catch(() => null);
         await this.command("input", {
           mode: "click",
           args: { x: p.x, y: p.y, button: action.type === "right_click" ? "right" : "left", clicks: action.type === "double_click" ? 2 : 1 },
         });
-        return { ok: true, method, point: p, element: el };
+        return { ok: true, method, point: p, element: el, detail: focused ? `foregrounded "${focused}"` : undefined };
       }
       case "move": {
         const p = this.pointArgs(action);
@@ -306,11 +347,11 @@ export class RemoteWindowsAdapter implements PlatformAdapter {
         return { ok: true, method: "coordinate" };
       }
       case "press":
-        await this.command("input", { mode: "key", args: { key: action.key } });
+        await this.command("input", { mode: "key", args: { key: normalizeWinKey(action.key) } });
         return { ok: true, method: "coordinate" };
       case "hotkey": {
-        const mods = action.keys.slice(0, -1);
-        const key = action.keys[action.keys.length - 1]!;
+        const mods = action.keys.slice(0, -1).map(normalizeWinKey);
+        const key = normalizeWinKey(action.keys[action.keys.length - 1]!);
         await this.command("input", { mode: "key", args: { key, modifiers: mods } });
         return { ok: true, method: "coordinate" };
       }
@@ -318,7 +359,8 @@ export class RemoteWindowsAdapter implements PlatformAdapter {
         await this.command("apps", { mode: "launch", args: { app: action.app } });
         return { ok: true, method: "system" };
       case "terminate_app":
-        await this.command("apps", { mode: "kill", args: { app: action.app } });
+        // apps.ps1 kill matches by process NAME (Get-Process -Name, no .exe suffix)
+        await this.command("apps", { mode: "kill", args: { name: action.app.replace(/\.exe$/i, "") } });
         return { ok: true, method: "system" };
       case "focus": {
         if (action.app) await this.command("apps", { mode: "launch", args: { app: action.app } });
@@ -362,7 +404,7 @@ export class RemoteWindowsAdapter implements PlatformAdapter {
   }
 
   async terminateApp(app: string): Promise<void> {
-    await this.command("apps", { mode: "kill", args: { app } });
+    await this.command("apps", { mode: "kill", args: { name: app.replace(/\.exe$/i, "") } });
   }
 
   async focusTarget(options: { app?: string; windowTitle?: string }): Promise<void> {

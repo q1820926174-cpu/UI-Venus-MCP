@@ -1,0 +1,68 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<title>校对靶场</title>
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body { font-family: "Microsoft YaHei", sans-serif; background: #101418; color: #e8eaed; padding: 24px; }
+  #state { font-size: 54px; font-weight: 700; background: #1b2330; border: 3px solid #4a90d9;
+           border-radius: 12px; padding: 18px 28px; min-height: 96px; margin-bottom: 20px; }
+  .grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 18px; margin-bottom: 22px; }
+  .grid button { font-size: 34px; padding: 34px 0; border: none; border-radius: 12px;
+                 background: #2d5b8e; color: #fff; cursor: pointer; }
+  .grid button:active { background: #4a90d9; }
+  #row { display: flex; gap: 14px; margin-bottom: 22px; align-items: center; }
+  #field { flex: 1; font-size: 34px; padding: 22px 18px; border-radius: 10px; border: 3px solid #4a90d9; background: #0c1016; color: #e8eaed; }
+  #submit { font-size: 30px; padding: 24px 36px; border: none; border-radius: 10px; background: #1e8e4e; color: #fff; }
+  #zone { height: 330px; overflow-y: auto; border: 3px solid #333; border-radius: 10px; padding: 12px; }
+  #zone div { font-size: 26px; padding: 12px 6px; border-bottom: 1px solid #222; }
+</style>
+</head>
+<body>
+<div id="state">READY 等待事件</div>
+<div id="mirror" style="font-size:40px;background:#14202c;border:3px solid #1e8e4e;border-radius:12px;padding:12px 24px;margin-bottom:18px;min-height:70px;">VALUE:(空)</div>
+<div class="grid">
+  <button data-btn="按钮一">按钮一</button>
+  <button data-btn="按钮二">按钮二</button>
+  <button data-btn="按钮三">按钮三</button>
+  <button data-btn="按钮四">按钮四</button>
+  <button data-btn="按钮五">按钮五</button>
+  <button data-btn="按钮六">按钮六</button>
+</div>
+<form id="row" onsubmit="return false;">
+  <input id="field" placeholder="在此输入，事件将回显到顶部" autocomplete="off" />
+  <button id="submit">提交</button>
+</form>
+<div id="zone"></div>
+<script>
+  const state = document.getElementById("state");
+  const field = document.getElementById("field");
+  const zone = document.getElementById("zone");
+  for (let i = 1; i <= 60; i++) {
+    const d = document.createElement("div");
+    d.textContent = `列表行 ${i} — List row ${i}`;
+    zone.appendChild(d);
+  }
+  const say = (t) => { state.textContent = t; };
+  document.querySelectorAll("[data-btn]").forEach((b) =>
+    b.addEventListener("click", () => say(`CLICK ${b.dataset.btn}`)));
+  document.getElementById("submit").addEventListener("click", () => say(`SUBMIT 提交:${field.value}`));
+  const mirror = document.getElementById("mirror");
+  field.addEventListener("input", () => { say(`TYPE:${field.value}`); mirror.textContent = `VALUE:${field.value}`; });
+  document.addEventListener("keydown", (e) => {
+    const inField = e.target === field;
+    const mods = [e.ctrlKey && "ctrl", e.altKey && "alt", e.shiftKey && "shift", e.metaKey && "meta"].filter(Boolean);
+    if (e.key === "Enter" && field.value) { say(`SUBMIT 提交:${field.value}`); mirror.textContent = `VALUE:${field.value}`; return; }
+    // plain character keys into the field are echoed by the input handler —
+    // don't let per-char keydowns overwrite the TYPE: line
+    if (inField && mods.length === 0 && e.key.length <= 1) return;
+    const combo = [...mods, e.key].join("+");
+    say(`KEY:${combo}`);
+    if (e.key === "F5") { e.preventDefault(); say(`KEY:F5 拦截(不刷新)`); }
+    if (e.key === "Escape") field.blur();
+  });
+  zone.addEventListener("scroll", () => say(`SCROLL:${Math.round(zone.scrollTop)}px`));
+</script>
+</body>
+</html>

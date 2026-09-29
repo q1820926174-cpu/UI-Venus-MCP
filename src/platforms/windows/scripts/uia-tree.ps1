@@ -5,7 +5,7 @@
 # ArgsJson (base64 UTF-8 JSON), all optional:
 #   pid          [int]    top-level windows of this process
 #   processName  [string] resolve process name -> pids -> windows
-#   windowTitle  [string] top-level window with this exact Name
+#   windowTitle  [string] top-level window by exact name, substring fallback (agents may pass approximate titles)
 #   desktopRoot  [bool]   walk the desktop root itself (mode "desktop")
 # Named params: -MaxDepth / -MaxNodes override caps.
 #
@@ -172,11 +172,24 @@ try {
         Walk $root 0
     }
     elseif ($titleTarget) {
-        $cond = New-Object System.Windows.Automation.PropertyCondition(
-            [System.Windows.Automation.AutomationElement]::NameProperty, $titleTarget)
-        $win = $root.FindFirst([System.Windows.Automation.TreeScope]::Children, $cond)
+        # exact match first (fast), then substring fallback (agents pass
+        # approximate/localized titles); on failure list what IS there
+        $winCond = New-Object System.Windows.Automation.PropertyCondition(
+            [System.Windows.Automation.AutomationElement]::ControlTypeProperty,
+            [System.Windows.Automation.ControlType]::Window)
+        $wins = $root.FindAll([System.Windows.Automation.TreeScope]::Children, $winCond)
+        $win = $null
+        foreach ($w in $wins) {
+            if ($w.Current.Name -eq $titleTarget) { $win = $w; break }
+        }
         if ($win -eq $null) {
-            [Console]::Error.WriteLine("PROCESS_NOT_FOUND: no top-level window named '$titleTarget'")
+            foreach ($w in $wins) {
+                if ($w.Current.Name -like "*$titleTarget*") { $win = $w; break }
+            }
+        }
+        if ($win -eq $null) {
+            $names = @($wins | ForEach-Object { $_.Current.Name } | Where-Object { $_ } | Select-Object -First 12)
+            [Console]::Error.WriteLine("PROCESS_NOT_FOUND: no top-level window named '$titleTarget'. Visible windows: $($names -join ' | ')")
             exit 3
         }
         Walk $win 0

@@ -33,7 +33,9 @@ Add-Type -AssemblyName UIAutomationClient
 Add-Type -AssemblyName UIAutomationTypes
 
 $wantRid = [string]$opts.runtimeId
-if (-not $wantRid) {
+$action = [string]$opts.action
+if (-not $action) { $action = "readState" }
+if (-not $wantRid -and $action -ne "foreground") {
     [Console]::Error.WriteLine("UIA_ERROR: runtimeId is required")
     exit 5
 }
@@ -180,11 +182,24 @@ try {
         $roots = @($root)
     }
     elseif ($titleTarget) {
-        $cond = New-Object System.Windows.Automation.PropertyCondition(
-            [System.Windows.Automation.AutomationElement]::NameProperty, $titleTarget)
-        $win = $root.FindFirst([System.Windows.Automation.TreeScope]::Children, $cond)
+        # exact match first (fast), then substring fallback (agents pass
+        # approximate/localized titles); on failure list what IS there
+        $winCond = New-Object System.Windows.Automation.PropertyCondition(
+            [System.Windows.Automation.AutomationElement]::ControlTypeProperty,
+            [System.Windows.Automation.ControlType]::Window)
+        $wins = $root.FindAll([System.Windows.Automation.TreeScope]::Children, $winCond)
+        $win = $null
+        foreach ($w in $wins) {
+            if ($w.Current.Name -eq $titleTarget) { $win = $w; break }
+        }
         if ($win -eq $null) {
-            [Console]::Error.WriteLine("ELEMENT_NOT_FOUND: no top-level window named '$titleTarget'")
+            foreach ($w in $wins) {
+                if ($w.Current.Name -like "*$titleTarget*") { $win = $w; break }
+            }
+        }
+        if ($win -eq $null) {
+            $names = @($wins | ForEach-Object { $_.Current.Name } | Where-Object { $_ } | Select-Object -First 12)
+            [Console]::Error.WriteLine("ELEMENT_NOT_FOUND: no top-level window named '$titleTarget'. Visible windows: $($names -join ' | ')")
             exit 3
         }
         $roots = @($win)
@@ -213,6 +228,30 @@ try {
         }
     }
 
+    if ($action -eq "foreground") {
+        $w0 = $roots[0]
+        $hwnd = [IntPtr]([int]$w0.Current.NativeWindowHandle)
+        if ($hwnd -eq [IntPtr]::Zero) {
+            [Console]::Error.WriteLine("ACTION_FAILED: scoped window has no NativeWindowHandle")
+            exit 5
+        }
+        if (-not ([System.Management.Automation.PSTypeName]'CuWin32FG').Type) {
+            $fgSrc = @'
+using System;
+using System.Runtime.InteropServices;
+public static class CuWin32FG {
+    [DllImport("user32.dll")]
+    public static extern bool SetForegroundWindow(IntPtr h);
+}
+'@
+            Add-Type -TypeDefinition $fgSrc
+        }
+        $okFg = [CuWin32FG]::SetForegroundWindow($hwnd)
+        Start-Sleep -Milliseconds 80
+        @{ ok = [bool]$okFg; action = "foreground"; windowHandle = [int64]$hwnd } |
+            ConvertTo-Json -Compress -Depth 3
+        exit 0
+    }
     foreach ($r0 in $roots) {
         Walk $r0 0
         if ($script:found -ne $null) { break }

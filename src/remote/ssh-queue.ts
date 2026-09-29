@@ -68,11 +68,16 @@ export class SshQueueConnector implements RemoteConnector {
     const deadline = Date.now() + timeoutMs;
     let raw = "";
     while (Date.now() < deadline) {
+      // base64 round-trip: printing UTF-8 through the PS console (cp936)
+      // mangles CJK — encode the file bytes and decode locally instead
       raw = await this.ssh(
-        `powershell -NoProfile -Command "if (Test-Path '${resFile}') { Get-Content -Raw -Encoding UTF8 '${resFile}' } else { 'PENDING' }"`,
+        `powershell -NoProfile -Command "if (Test-Path '${resFile}') { [Convert]::ToBase64String([IO.File]::ReadAllBytes('${resFile}')) } else { 'PENDING' }"`,
       )
         .then((s) => s.trim())
         .catch(() => "PENDING");
+      if (raw !== "PENDING" && raw !== "" && /^[A-Za-z0-9+/=\s]+$/.test(raw)) {
+        raw = Buffer.from(raw, "base64").toString("utf8");
+      }
       if (raw !== "PENDING" && raw !== "") break;
       await new Promise((r) => setTimeout(r, interval));
     }
