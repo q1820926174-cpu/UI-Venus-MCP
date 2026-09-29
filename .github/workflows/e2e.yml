@@ -110,10 +110,11 @@ jobs:
   venus-live:
     runs-on: ubuntu-latest
     timeout-minutes: 15
-    # GitHub runner IP ranges cannot reach the reference endpoint directly;
-    # CI uses the temporary trycloudflare tunnel (scripts/dev/venus-tunnel.mjs
-    # on the relay host; URL published in the VENUS_TUNNEL_URL repo variable).
-    # Proven green from runners on 2026-09-29 — a hard gate now.
+    # GitHub runner IP ranges cannot reach the reference endpoint directly.
+    # When the optional trycloudflare tunnel is up (scripts/dev/venus-tunnel.mjs
+    # on a relay host; URL in the VENUS_TUNNEL_URL repo variable) this job
+    # live-tests the official protocol against the real model. Without the
+    # variable it SKIPS — tunnel is an on-demand facility, not permanent.
     steps:
       - uses: actions/checkout@v4
       - uses: pnpm/action-setup@v4
@@ -134,8 +135,8 @@ jobs:
           VENUS_MODEL: ${{ secrets.VENUS_MODEL }}
           VENUS_ALLOW_INSECURE_HTTP: "true"
         run: |
-          if [ -z "$VENUS_API_KEY" ]; then
-            echo "VENUS secrets not configured — skipping live job"
+          if [ -z "$VENUS_API_KEY" ] || [ -z "$VENUS_TUNNEL_URL" ]; then
+            echo "no tunnel/keys configured — skipping live job (start one: scripts/dev/venus-tunnel.mjs)"
             exit 0
           fi
           # prefer the runner-reachable tunnel; fall back to the direct endpoint
