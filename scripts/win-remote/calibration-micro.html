@@ -1,0 +1,183 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<title>极限微靶场</title>
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body { font-family: "Microsoft YaHei", sans-serif; background: #06090d; color: #cfd9e2; padding: 16px; }
+  h3 { font-size: 15px; color: #6fa8d4; margin: 10px 0 6px; }
+  #verdict { font-size: 26px; font-weight: 700; padding: 8px 18px; border-radius: 8px; background: #10161f; margin-bottom: 10px; }
+  .stage { margin-bottom: 14px; background: #0b111a; border: 2px solid #1a2736; border-radius: 10px; padding: 10px; }
+
+  /* Q1: 10px buttons, 3px gaps, 6x4 grid */
+  #q1 { display: grid; grid-template-columns: repeat(6, 10px); gap: 3px; }
+  #q1 button { width: 10px; height: 10px; padding: 0; border: 1px solid #2a3a50; background: #16202e; cursor: pointer; }
+  #q1 button.t { background: #ff9a3c; border-color: #ffb454; }
+  #q1 button.hit { background: #22c55e; }
+  #q1 button.miss { background: #ef4444; }
+
+  /* Q2: 8px strip, 1px gaps — 12 in a row */
+  #q2 { display: flex; gap: 1px; }
+  #q2 button { width: 8px; height: 8px; padding: 0; border: 0; background: #243248; cursor: pointer; }
+  #q2 button.t { background: #22d3ee; }
+  #q2 button.hit { background: #22c55e; }
+  #q2 button.miss { background: #ef4444; }
+
+  /* Q3: micro input 14px tall */
+  #q3wrap { display: flex; align-items: center; gap: 8px; }
+  #q3 { width: 90px; height: 14px; font-size: 9px; padding: 0 2px; background: #04070b; border: 1px solid #2c5d8f; color: #d8e0e8; }
+  #q3btn { font-size: 10px; padding: 1px 8px; height: 14px; background: #1e6e42; color: #fff; border: 0; border-radius: 3px; cursor: pointer; }
+
+  /* Q4: native 8px-ish checkboxes (zoomed down via transform for 6px actual) */
+  #q4 label { font-size: 10px; display: flex; align-items: center; gap: 3px; margin-right: 10px; }
+  #q4 { display: flex; }
+  #q4 input[type=checkbox] { width: 9px; height: 9px; margin: 0; }
+
+  /* Q5: dense text with single-char links, font-size 9px */
+  #q5 { font-size: 9px; line-height: 1.9; letter-spacing: 0; }
+  #q5 a { color: #58c6ff; cursor: pointer; text-decoration: underline; padding: 0; }
+  #q5 a.hit { color: #22c55e; font-weight: 700; }
+
+  .status { font-size: 13px; color: #93a8bd; margin-top: 6px; min-height: 18px; }
+  #score { font-size: 18px; font-weight: 700; color: #ffb454; margin: 4px 0; }
+</style>
+</head>
+<body>
+<div id="verdict">VERDICT: 待测</div>
+<div id="score">得分 0/100</div>
+
+<div class="stage">
+  <h3>Q1 · 10px 按钮田字格（间隙 3px，点击全部橙色目标）</h3>
+  <div id="q1"></div>
+  <div class="status" id="q1s">未开始</div>
+</div>
+
+<div class="stage">
+  <h3>Q2 · 8px 密集条（间隙 1px，点击全部青色目标）</h3>
+  <div id="q2"></div>
+  <div class="status" id="q2s">未开始</div>
+</div>
+
+<div class="stage">
+  <h3>Q3 · 14px 微型输入（输入 micro 并点校验）</h3>
+  <div id="q3wrap">
+    <input id="q3" aria-label="微型输入框" placeholder="micro">
+    <button id="q3btn" aria-label="微校验">✓</button>
+  </div>
+  <div class="status" id="q3s">未开始</div>
+</div>
+
+<div class="stage">
+  <h3>Q4 · 原生 9px 复选框（勾选 甲 和 丙，不勾 乙，然后点判定）</h3>
+  <div id="q4">
+    <label><input type="checkbox" data-k="甲" aria-label="微选甲">甲</label>
+    <label><input type="checkbox" data-k="乙" aria-label="微选乙">乙</label>
+    <label><input type="checkbox" data-k="丙" aria-label="微选丙">丙</label>
+    <button id="q4btn" aria-label="微选判定" style="font-size:10px;padding:1px 8px;height:16px;background:#1e6e42;color:#fff;border:0;border-radius:3px;cursor:pointer">判定</button>
+  </div>
+  <div class="status" id="q4s">未开始</div>
+</div>
+
+<div class="stage">
+  <h3>Q5 · 9px 密文链接（点击 文中 3 个蓝色单字链：金 木 水）</h3>
+  <div id="q5"></div>
+  <div class="status" id="q5s">未开始</div>
+</div>
+
+<script>
+const $ = (i) => document.getElementById(i);
+const verdict = $("verdict");
+let score = 0;
+const addScore = (n) => { score += n; $("score").textContent = `得分 ${score}/100`; };
+const setV = (t) => { verdict.textContent = `VERDICT: ${t}`; };
+
+// Q1: 24 buttons (6x4), 6 random targets
+const q1targets = new Set();
+while (q1targets.size < 6) q1targets.add(Math.floor(Math.random() * 24));
+let q1left = q1targets.size;
+const q1 = $("q1");
+for (let i = 0; i < 24; i++) {
+  const b = document.createElement("button");
+  b.setAttribute("aria-label", `微钮${i}`);
+  if (q1targets.has(i)) b.classList.add("t");
+  b.addEventListener("click", () => {
+    if (q1targets.has(i) && !b.classList.contains("hit")) {
+      b.classList.add("hit"); q1left--;
+      $("q1s").textContent = `命中 ${6 - q1left}/6`;
+      if (q1left === 0) { addScore(20); $("q1s").textContent = "Q1 完成 +20"; checkAll(); }
+    } else if (!q1targets.has(i) && !b.classList.contains("miss")) {
+      b.classList.add("miss"); $("q1s").textContent = `点错 #${i}`;
+    }
+  });
+  q1.appendChild(b);
+}
+
+// Q2: 12 buttons, 4 targets
+const q2targets = new Set();
+while (q2targets.size < 4) q2targets.add(Math.floor(Math.random() * 12));
+let q2left = q2targets.size;
+const q2 = $("q2");
+for (let i = 0; i < 12; i++) {
+  const b = document.createElement("button");
+  b.setAttribute("aria-label", `微条${i}`);
+  if (q2targets.has(i)) b.classList.add("t");
+  b.addEventListener("click", () => {
+    if (q2targets.has(i) && !b.classList.contains("hit")) {
+      b.classList.add("hit"); q2left--;
+      $("q2s").textContent = `命中 ${4 - q2left}/4`;
+      if (q2left === 0) { addScore(20); $("q2s").textContent = "Q2 完成 +20"; checkAll(); }
+    } else if (!q2targets.has(i) && !b.classList.contains("miss")) {
+      b.classList.add("miss"); $("q2s").textContent = `点错 #${i}`;
+    }
+  });
+  q2.appendChild(b);
+}
+
+// Q3: micro input
+$("q3btn").addEventListener("click", () => {
+  if ($("q3").value.trim() === "micro") {
+    addScore(20); $("q3s").textContent = "Q3 完成 +20"; setV("PASS Q3"); checkAll();
+  } else { $("q3s").textContent = `输入为 "${$("q3").value}" 应为 micro`; }
+});
+
+// Q4: checkboxes 甲+丙
+$("q4btn").addEventListener("click", () => {
+  const on = [...document.querySelectorAll("#q4 input")].filter((c) => c.checked).map((c) => c.dataset.k).sort().join("");
+  if (on === "丙甲".split("").sort().join("")) { addScore(20); $("q4s").textContent = "Q4 完成 +20"; checkAll(); }
+  else $("q4s").textContent = `当前勾选: ${on || "无"}（需 甲+丙）`;
+});
+
+// Q5: dense text with links 金木水
+const words = ["天", "地", "玄", "黄", "宇", "宙", "洪", "荒", "日", "月", "盈", "昃", "辰", "宿", "列", "张", "寒", "来", "暑", "往", "秋", "收", "冬", "藏"];
+const links = ["金", "木", "水"];
+const pool = [...words, ...words];
+const frag = document.createDocumentFragment();
+let li = 0, plain = "";
+const total = pool.length + links.length;
+for (let i = 0; i < total; i++) {
+  if (i % 9 === 4 && li < links.length) {
+    if (plain) { frag.appendChild(document.createTextNode(plain)); plain = ""; }
+    const a = document.createElement("a");
+    a.textContent = links[li];
+    a.setAttribute("aria-label", `密链${links[li]}`);
+    a.addEventListener("click", () => {
+      if (!a.classList.contains("hit")) {
+        a.classList.add("hit");
+        const done = document.querySelectorAll("#q5 a.hit").length;
+        $("q5s").textContent = `链接 ${done}/3`;
+        if (done === 3) { addScore(20); $("q5s").textContent = "Q5 完成 +20"; checkAll(); }
+      }
+    });
+    frag.appendChild(a); li++;
+  } else plain += pool[(i * 7) % pool.length];
+}
+if (plain) frag.appendChild(document.createTextNode(plain));
+$("q5").appendChild(frag);
+
+function checkAll() {
+  if (score >= 100) setV("PASS ALL 微靶场通关");
+}
+</script>
+</body>
+</html>

@@ -40,6 +40,11 @@ description: Operate local and remote computers' GUIs through the ui-venus-mcp M
 **delegate 不适合长表单链**：实测 9B 模型在多字段表单（T1 链式登录）上无法维持跨步计划——即使命中反馈+历史指导三重加码，仍反复输出第一步动作。**复杂/多步任务请用 assist 模式**：你（agent）自己规划，逐步调 computer_locate → computer_action，每步读结果再决定下一步。你的推理能力比 9B 的闭环强。
 停滞守卫会自动注入"屏幕真实可交互元素清单"与命中反馈（已聚焦→应 Type），帮你救场；两次同一动作+屏幕无变化即诚实失败。
 
+## 极限微靶场（8-10px 目标，151 已部署）
+
+`calibration-micro.html`：Q1 10px 按钮×6（间隙3px）· Q2 8px 按钮×4（**间隙1px**）· Q3 14px 微输入框 · Q4 原生 9px 复选框 · Q5 9px 密文单字链接。**7/7 全绿（100/100）实测**。
+方法（重要）：微小目标用 **UIA bounds + 像素采样融合**——树给精确 bounds（aria 名 `微钮N/微条N/密链X`），截图采色识别目标（orange/cyan），然后 bounds 中心精击。8px 目标缩放后仅 ~6px，采样需 ±2px 多点。纯视觉聚类会被同色文字干扰，不可用。驱动：`node scripts/win-remote/calibration-micro-driver.mjs`。
+
 ## 校对靶场（确定性验收，151 已部署）
 
 `C:\Users\gold\win-remote\calibration.html`（仓库 scripts/win-remote/calibration.html）——大按钮网格(按钮一~六)+输入框+滚动列表，每个事件大字回显（UIA 可读）：
