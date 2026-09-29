@@ -34,6 +34,12 @@ description: Operate local and remote computers' GUIs through the ui-venus-mcp M
 **terminate_app** 名称带不带 .exe 均可。
 **windowTitle 定位**：支持子串匹配（如"计算器"可匹配"标准: 计算器"），失败时错误信息会列出当前可见窗口标题。
 
+## delegate 能力边界（实机压榨结论，务必遵守）
+
+**delegate 适合短任务**（≤5 步、单一目标）：如"计算器算 7×3"、"点某按钮"、"勾选某项"。已实机验证成功。
+**delegate 不适合长表单链**：实测 9B 模型在多字段表单（T1 链式登录）上无法维持跨步计划——即使命中反馈+历史指导三重加码，仍反复输出第一步动作。**复杂/多步任务请用 assist 模式**：你（agent）自己规划，逐步调 computer_locate → computer_action，每步读结果再决定下一步。你的推理能力比 9B 的闭环强。
+停滞守卫会自动注入"屏幕真实可交互元素清单"与命中反馈（已聚焦→应 Type），帮你救场；两次同一动作+屏幕无变化即诚实失败。
+
 ## 校对靶场（确定性验收，151 已部署）
 
 `C:\Users\gold\win-remote\calibration.html`（仓库 scripts/win-remote/calibration.html）——大按钮网格(按钮一~六)+输入框+滚动列表，每个事件大字回显（UIA 可读）：
@@ -82,3 +88,5 @@ computer_execute_task { target, task:"...", mode:"delegate", wait:false }
 - 截图坐标空间：返回的 point 已是该截图像素空间，直接用于 action
 - macOS 上少做 GUI 操作（用户敏感），只读类（screenshot/inspect/get_state/locate）随意
 - 深入文档：/Users/gold/UI-Venus-MCP/docs/（api.md / remote-targets.md / qa-report.md）
+
+**极限靶场 v3**（calibration-v3.html）：X1 极端输入 7 案例字节级校验（emoji/引号转义/符号/250字长文/终极混合——全部实机 PASS）+ X2 精准滚动（闭环校准至目标行 ±2）。驱动：node scripts/win-remote/ 待补 v3 驱动器入仓。

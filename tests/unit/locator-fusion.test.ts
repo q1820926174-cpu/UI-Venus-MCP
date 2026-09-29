@@ -81,4 +81,20 @@ describe("snapToStructuredElement (vision→semantic fusion)", () => {
   it("refuses distant points (keep vision coordinates)", () => {
     expect(snapToStructuredElement(obs(tree), { x: 790, y: 590 })).toBeNull();
   });
+
+  it("NEVER snaps onto static labels even when the point is inside them", () => {
+    const labelTree: UINode = {
+      id: "l1", source: "uia", role: "text", name: "T1 账户表单链（依次完成才解锁登录）",
+      bounds: { x: 0, y: 0, width: 400, height: 40 }, clickable: false,
+      children: [
+        { id: "e1", source: "uia", role: "edit", name: "用户名输入", bounds: { x: 0, y: 50, width: 200, height: 30 }, editable: true },
+      ],
+    };
+    const t = obs(labelTree);
+    // point inside the big label → must NOT return the label
+    const snapped = snapToStructuredElement(t, { x: 200, y: 20 });
+    expect(snapped?.id).not.toBe("l1");
+    // point inside the small edit → snaps to the edit
+    expect(snapToStructuredElement(t, { x: 100, y: 65 })?.id).toBe("e1");
+  });
 });

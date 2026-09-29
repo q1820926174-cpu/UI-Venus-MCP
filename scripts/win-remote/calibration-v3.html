@@ -1,0 +1,131 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<title>校对靶场-极限</title>
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body { font-family: "Microsoft YaHei", sans-serif; background: #0a0e14; color: #d8e0e8; padding: 18px; }
+  .hdr { display: flex; justify-content: space-between; font-size: 22px; font-weight: 700; margin-bottom: 10px; }
+  #verdict { font-size: 30px; font-weight: 700; padding: 10px 20px; border-radius: 10px; background: #161d27; }
+  .row { display: flex; gap: 16px; height: calc(100vh - 120px); }
+  .panel { background: #101722; border: 2px solid #223046; border-radius: 12px; padding: 14px; flex: 1; display: flex; flex-direction: column; }
+  .panel h3 { font-size: 18px; color: #7fa8cf; margin-bottom: 10px; }
+  #inputMain { font-size: 20px; padding: 12px; background: #070b10; border: 3px solid #2c5d8f; border-radius: 8px; color: #d8e0e8; width: 100%; height: 120px; resize: none; }
+  .btns { display: flex; flex-wrap: wrap; gap: 8px; margin: 12px 0; }
+  .btns button { font-size: 16px; padding: 10px 14px; background: #1c2c40; color: #a8c4e0; border: 1px solid #2c4460; border-radius: 8px; cursor: pointer; }
+  .btns button.check { background: #1e6e42; color: #fff; }
+  #echo { font-family: Consolas, monospace; font-size: 15px; background: #070b10; border: 2px solid #223046; border-radius: 8px; padding: 10px; min-height: 100px; white-space: pre-wrap; word-break: break-all; flex: 1; overflow: auto; }
+  #list { height: 420px; overflow-y: auto; border: 2px solid #223046; border-radius: 8px; }
+  #list div { font-size: 19px; padding: 9px 12px; border-bottom: 1px solid #16202e; }
+  #scrollState { font-size: 22px; margin: 10px 0; color: #ffb454; font-weight: 700; }
+  .target { color: #58c6ff; }
+</style>
+</head>
+<body>
+<div class="hdr">
+  <div>极端输入 + 精准滚动 压榨场</div>
+  <div id="verdict">VERDICT: 待测</div>
+</div>
+<div class="row">
+  <div class="panel">
+    <h3>X1 极端输入（点案例→清空→输入→点校验→读判定）</h3>
+    <textarea id="inputMain" aria-label="主输入区" placeholder="在此输入，然后点校验"></textarea>
+    <div class="btns" id="cases">
+      <button data-c="plain">普通英文</button>
+      <button data-c="cjk">中日韩混排</button>
+      <button data-c="emoji">表情符号</button>
+      <button data-c="quotes">引号转义</button>
+      <button data-c="symbols">符号冲击</button>
+      <button data-c="long">超长文本(300字)</button>
+      <button data-c="mixed">终极混合</button>
+    </div>
+    <div class="btns">
+      <button id="clearBtn">清空</button>
+      <button id="checkBtn" class="check">校验</button>
+    </div>
+    <div id="echo" aria-label="回显区">回显区…</div>
+  </div>
+  <div class="panel">
+    <h3>X2 精准滚动（把列表滚到首行 = 目标行，误差 ≤2 行）</h3>
+    <div>当前首行: <span id="firstRow">1</span> ｜ 目标行: <span id="targetRow" class="target">?</span></div>
+    <div class="btns">
+      <button id="newTarget">出题</button>
+      <button id="judgeScroll" class="check">判定滚动</button>
+    </div>
+    <div id="scrollSummary" style="font-size:20px;font-weight:700;color:#58c6ff;margin:6px 0">滚动汇总:首行=1,目标=?</div>
+    <div id="list" aria-label="滚动列表"></div>
+  </div>
+</div>
+<script>
+const $ = (id) => document.getElementById(id);
+const echo = $("echo"), verdict = $("verdict"), input = $("inputMain");
+const list = $("list"), firstRow = $("firstRow"), targetRowEl = $("targetRow");
+
+// X2: 200 rows
+for (let i = 1; i <= 200; i++) {
+  const d = document.createElement("div");
+  d.textContent = `第 ${i} 行 — Row ${i}`;
+  d.id = `row-${i}`;
+  list.appendChild(d);
+}
+const rowAtTop = () => Math.max(1, Math.round(list.scrollTop / 38) + 1);
+list.addEventListener("scroll", () => { firstRow.textContent = rowAtTop(); syncSummary(); });
+function syncSummary() {
+  const el = document.getElementById("scrollSummary");
+  el.textContent = `滚动汇总:首行=${rowAtTop()},目标=${scrollTarget ?? "?"}`;
+}
+let scrollTarget = null, scrollResult = "未出题";
+$("newTarget").addEventListener("click", () => {
+  scrollTarget = 20 + Math.floor(Math.random() * 160);
+  targetRowEl.textContent = scrollTarget;
+  scrollResult = "已出题";
+  verdict.textContent = "VERDICT: 目标已出";
+  syncSummary(); say2();
+});
+$("judgeScroll").addEventListener("click", () => {
+  if (scrollTarget === null) { scrollResult = "未出题"; say2(); return; }
+  const cur = rowAtTop();
+  const ok = Math.abs(cur - scrollTarget) <= 2;
+  scrollResult = ok ? "PASS" : "FAIL";
+  verdict.textContent = `VERDICT: ${ok ? "PASS" : "FAIL"}(首行${cur} 目标${scrollTarget})`;
+  log2(`滚动判定 ${ok ? "PASS" : "FAIL"}: 首行=${cur} 目标=${scrollTarget}`);
+});
+const say2 = () => log2(`滚动状态: ${scrollResult} 当前首行=${rowAtTop()} 目标=${scrollTarget ?? "?"}`);
+function log2(t) { const d = document.createElement("div"); d.textContent = t; d.style.cssText = "font-size:17px;padding:8px;border-bottom:1px solid #16202e"; $("list").after ? null : null; document.body.appendChild(d); }
+
+// X1 cases — each sets an expectation, then the DRIVER types the same text
+// into the textarea and presses 校验; the page compares exactly.
+const CASES = {
+  plain: "Hello World 123 ABCdef",
+  cjk: "你好世界こんにちは안녕하세요中文测试",
+  emoji: "🎉🚀✅❤️🤖👍😀🔥💎🌟🎵",
+  quotes: 'He said "hi" & \'bye\' <tag> 50% + \\path/ "nested \\"deeply\\""',
+  symbols: "!@#$%^&*()_+-=[]{}|;:,.<>?/~`€£¥§±×÷≠∞≈",
+  long: "极限压榨".repeat(60) + "Mixed123结尾",
+  mixed: "开头🎉中文\"引号\"结束✅emoji+漢字ひらがな한국어123!@#",
+};
+let expect = null;
+const log1 = (t, cls) => { const d = document.createElement("div"); d.textContent = t; echo.appendChild(d); echo.scrollTop = echo.scrollHeight; };
+document.querySelectorAll("#cases button").forEach((b) =>
+  b.addEventListener("click", () => {
+    const c = b.dataset.c;
+    expect = CASES[c];
+    input.value = "";
+    log1(`▶ 案例 ${c} 已选中（期望文本 ${expect.length} 字符）— 请清空后输入并点校验`);
+    verdict.textContent = "VERDICT: 待输入";
+  }));
+$("clearBtn").addEventListener("click", () => { input.value = ""; log1("已清空"); });
+$("checkBtn").addEventListener("click", () => {
+  if (expect === null) { verdict.textContent = "VERDICT: 未选案例"; return; }
+  const got = input.value;
+  const ok = got === expect;
+  verdict.textContent = `VERDICT: ${ok ? "PASS" : "FAIL"}(${got.length}/${expect.length}字符)`;
+  log1(`校验 ${ok ? "PASS" : "FAIL"}: 输入${got.length}字符 期望${expect.length}字符`, ok ? "ok" : "no");
+  if (!ok) log1(`实际: ${JSON.stringify(got.slice(0, 80))}\n期望: ${JSON.stringify(expect.slice(0, 80))}`);
+});
+log1("X1 就绪：点案例→(驱动)清空+输入→校验");
+say2();
+</script>
+</body>
+</html>

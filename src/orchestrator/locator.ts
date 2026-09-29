@@ -119,7 +119,11 @@ export function matchStructured(
       if (roleLower.includes(roleHint.toLowerCase())) score += 50;
       else score -= 20;
     }
-    if (node.clickable) score += 10;
+    // interactive elements dominate: a heading that MENTIONS the target
+    // must never outrank the button/input that IS the target
+    const interactive = node.clickable || node.editable || /^(button|textfield|checkbox|switch|combobox|link|tab|menuitem|listitem)$/i.test(node.role ?? "");
+    if (interactive) score += 40;
+    else if (best < 100) score -= 60; // partial text match on non-interactive → demote hard
     if (score > 0) scored.push({ el: nodeToElement(node), score });
   }
   if (scored.length === 0) return null;
@@ -139,20 +143,24 @@ export function snapToStructuredElement(
 ): ElementRef | null {
   if (!observation.uiTree) return null;
   const nodes = flattenTree(observation.uiTree).filter((n) => n.bounds);
-  let best: { el: ElementRef; d: number } | null = null;
+  const interactive = (n: UINode): boolean =>
+    n.clickable || n.editable ||
+    /^(button|textfield|textarea|checkbox|switch|combobox|link|tab|menuitem|listitem|document|edit)$/i.test(n.role ?? "");
+  let bestI: { el: ElementRef; d: number } | null = null;
   for (const node of nodes) {
+    // never snap a click onto a static label/heading — fall through to the
+    // model's own coordinates instead of mis-aiming "precisely"
+    if (!interactive(node)) continue;
     const b = node.bounds!;
-    if (pointInRect(point, b)) {
-      const d = distance(point, rectCenter(b));
-      if (!best || d < best.d) best = { el: nodeToElement(node), d };
-      continue;
+    let d: number;
+    if (pointInRect(point, b)) d = distance(point, rectCenter(b));
+    else {
+      d = distance(point, rectCenter(b));
+      if (d > maxSnap + Math.min(b.width, b.height) / 2) continue;
     }
-    const c = rectCenter(b);
-    const d = distance(point, c);
-    const within = d <= maxSnap + Math.min(b.width, b.height) / 2;
-    if (within && (!best || d < best.d)) best = { el: nodeToElement(node), d };
+    if (!bestI || d < bestI.d) bestI = { el: nodeToElement(node), d };
   }
-  return best?.el ?? null;
+  return bestI?.el ?? null;
 }
 
 export class FusionLocator {

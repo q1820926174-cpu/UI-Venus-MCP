@@ -337,11 +337,30 @@ export class TaskOrchestrator {
         }
       }
       stepIndex++;
+      // hit-feedback: name the interactive element the executed point landed
+      // on (silent-success UIs — e.g. focusing an input — give the model no
+      // screen change to learn from; this closes the feedback loop)
+      let hitNote = "";
+      if (result.ok && result.point && obs.uiTree) {
+        const toScreen = toScreenshotPixels(execAction, obs);
+        const px = execAction && hasPoint(execAction) ? toScreen.x : (result.point?.x ?? 0);
+        const py = execAction && hasPoint(execAction) ? toScreen.y : (result.point?.y ?? 0);
+        const shotScale = obs.screenshot && obs.screenshot.scale > 0 ? obs.screenshot.scale : 1;
+        const sx = px / shotScale + (obs.screenshot?.origin.x ?? 0);
+        const sy = py / shotScale + (obs.screenshot?.origin.y ?? 0);
+        const hit = findInteractiveAt(obs.uiTree, { x: sx, y: sy });
+        if (hit?.name) {
+          const editable = /edit|textfield|textarea|input|document/i.test(hit.role ?? "");
+          hitNote = editable
+            ? ` → 已聚焦输入框"${hit.name.slice(0, 24)}"，下一步应 Type(content=要输入的内容)`
+            : ` → 已点击"${hit.name.slice(0, 24)}"`;
+        }
+      }
       const step: TaskRecord["steps"][number] = {
         index: stepIndex,
         action: execAction,
         ok: result.ok,
-        summary: actionSummary(execAction),
+        summary: actionSummary(execAction) + hitNote,
         screenHash: obs.screenshot?.hash,
         error: result.error?.message,
         result,
@@ -376,13 +395,29 @@ export class TaskOrchestrator {
           return this.snapshot(entry);
         }
         sm.transition("RECOVERING", stagnation.reasons.join("; "));
-        // recovery: brief pause; the next iteration re-observes. A history
-        // note steers the model away from repeating the same move.
+        // Structured rescue: the model keeps aiming at the same dead spot —
+        // surface the REAL interactive elements (names from the UI tree) in
+        // the history so the next decision can target them by sight.
+        let rescue = "";
+        try {
+          const flat: { role?: string; name?: string; clickable?: boolean; editable?: boolean }[] = [];
+          const walkTree = (n: NonNullable<Observation["uiTree"]>): void => {
+            if (flat.length >= 18) return;
+            const interactive = n.clickable || n.editable ||
+              /^(button|textfield|textarea|checkbox|switch|combobox|link|tab|menuitem|listitem|edit)$/i.test(n.role ?? "");
+            if (interactive && n.name) flat.push({ role: n.role, name: n.name });
+            for (const c of n.children ?? []) walkTree(c);
+          };
+          if (obs.uiTree) walkTree(obs.uiTree);
+          if (flat.length > 0) {
+            rescue = " 屏幕上真实可交互元素: " + flat.map((e) => `"${(e.name ?? "").slice(0, 24)}"(${e.role})`).join(", ").slice(0, 600);
+          }
+        } catch { /* tree optional */ }
         record.steps.push({
           index: stepIndex,
           action: { type: "wait", durationMs: 300 },
           ok: true,
-          summary: `recovery ${recoveries}/${this.cfg.orchestrator.maxRecoveries}: ${stagnation.reasons.join("; ")}`,
+          summary: `recovery ${recoveries}/${this.cfg.orchestrator.maxRecoveries}: ${stagnation.reasons.join("; ")}.${rescue}`,
           screenHash: obs.screenshot?.hash,
         });
         await new Promise((r) => setTimeout(r, 300));
@@ -462,6 +497,22 @@ function treeDigest(root: unknown): string | undefined {
   const joined = parts.join("|");
   for (let i = 0; i < joined.length; i++) h = ((h * 33) ^ joined.charCodeAt(i)) >>> 0;
   return `t${h.toString(36)}`;
+}
+
+function findInteractiveAt(root: NonNullable<Observation["uiTree"]>, p: { x: number; y: number }): { name?: string; role?: string } | null {
+  let best: { name?: string; role?: string; area: number } | undefined;
+  const walk = (n: NonNullable<Observation["uiTree"]>): void => {
+    const b = n.bounds;
+    const interactive = n.clickable || n.editable ||
+      /^(button|textfield|textarea|checkbox|switch|combobox|link|tab|menuitem|listitem|edit)$/i.test(n.role ?? "");
+    if (b && interactive && p.x >= b.x && p.x <= b.x + b.width && p.y >= b.y && p.y <= b.y + b.height) {
+      const area = b.width * b.height;
+      if (!best || area < best.area) best = { name: n.name, role: n.role, area };
+    }
+    for (const c of n.children ?? []) walk(c);
+  };
+  walk(root);
+  return best !== undefined ? { name: best.name, role: best.role } : null;
 }
 
 function hasPoint(action: Action): boolean {
