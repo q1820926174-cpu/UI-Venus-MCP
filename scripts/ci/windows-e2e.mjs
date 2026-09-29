@@ -44,30 +44,35 @@ const adapter = session.adapter;
 hard("open-capabilities", session.info.platform === "windows", adapter.getCapabilities());
 
 // ---- launch a classic Win32 app with a real EDIT control (poll for its window)
+const APP_WIN = /Character Map|字符映射表|Notepad|记事本/i;
 let appLaunched = "charmap";
 await adapter.launchApp("charmap");
 let windows = [];
-for (let i = 0; i < 10; i++) {
+// poll until the APP'S OWN window is enumerated — the CI agent console is
+// always present and must NOT satisfy this gate (it once did, and the
+// windowTitle-scoped tree then read the console → 16 nodes, no editable)
+for (let i = 0; i < 15; i++) {
   await new Promise((r) => setTimeout(r, 1000));
   windows = await adapter.listWindows().catch(() => []);
-  if (windows.length > 0) break;
+  if (windows.some((w) => APP_WIN.test(w.title ?? ""))) break;
 }
-if (windows.length === 0) {
+if (!windows.some((w) => APP_WIN.test(w.title ?? ""))) {
   // retry with classic notepad (Windows Server runners keep the win32 one)
   appLaunched = "notepad";
   await adapter.launchApp("notepad").catch(() => {});
-  for (let i = 0; i < 8; i++) {
+  for (let i = 0; i < 10; i++) {
     await new Promise((r) => setTimeout(r, 1000));
     windows = await adapter.listWindows().catch(() => []);
-    if (windows.length > 0) break;
+    if (windows.some((w) => /Notepad|记事本/i.test(w.title ?? ""))) break;
   }
 }
 report.windows = windows.map((w) => w.title);
-hard("app-window-visible", windows.length > 0, { app: appLaunched, windows: report.windows.slice(0, 8) });
+const appWin = windows.filter((w) => APP_WIN.test(w.title ?? ""));
+hard("app-window-visible", appWin.length > 0, { app: appLaunched, appWindows: appWin.map((w) => w.title), all: report.windows.slice(0, 8) });
 
 // observe() scopes UIA to the FOREGROUND window — bring our app to front
 // first (title-bar click, the reliable method that also worked on 151)
-const target = windows.find((w) => /Character Map|字符映射表|Notepad|记事本/i.test(w.title));
+const target = appWin[0];
 if (target?.bounds) {
   const tx = Math.round(target.bounds.x + target.bounds.width / 2);
   const ty = Math.round(target.bounds.y + 10);
