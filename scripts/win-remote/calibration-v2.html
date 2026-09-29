@@ -1,0 +1,233 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<title>校对靶场-进阶</title>
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body { font-family: "Microsoft YaHei", sans-serif; background: #0d1117; color: #dce3ea; padding: 18px; overflow: hidden; }
+  .hdr { display: flex; justify-content: space-between; align-items: center; margin-bottom: 12px; }
+  #stage { font-size: 22px; font-weight: 700; color: #58c6ff; }
+  #score { font-size: 22px; font-weight: 700; color: #ffb454; }
+  #taskbar { background: #161d27; border: 2px solid #2c3a4d; border-radius: 10px; padding: 10px 16px; font-size: 20px; margin-bottom: 12px; min-height: 52px; }
+  #taskbar .done { color: #3fda7c; }
+  #taskbar .todo { color: #7a8ba0; }
+  #taskbar .active { color: #58c6ff; font-weight: 700; }
+
+  .layout { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; height: calc(100vh - 170px); }
+  .panel { background: #111823; border: 2px solid #243244; border-radius: 12px; padding: 14px; overflow: auto; }
+  .panel h3 { font-size: 18px; color: #8fb8dd; margin-bottom: 10px; }
+
+  /* T1 login form chain */
+  .frow { display: flex; align-items: center; gap: 10px; margin-bottom: 10px; }
+  .frow label { font-size: 17px; width: 120px; }
+  .frow input, .frow select { flex: 1; font-size: 18px; padding: 8px 10px; background: #0a0f16; border: 2px solid #2c3a4d; border-radius: 8px; color: #dce3ea; }
+  #t1-login { font-size: 19px; padding: 10px 28px; background: #22518f; color: #fff; border: none; border-radius: 8px; cursor: pointer; }
+  #t1-login:disabled { background: #333; color: #777; }
+
+  /* T2 small buttons grid: 44px targets in 8x5 */
+  #t2grid { display: grid; grid-template-columns: repeat(8, 1fr); gap: 6px; }
+  #t2grid button { font-size: 13px; padding: 0; height: 44px; background: #1c2838; color: #9db4cc; border: 1px solid #2c3a4d; border-radius: 6px; cursor: pointer; }
+  #t2grid button.hit { background: #1e6e42; color: #fff; }
+  #t2grid button.wrong { background: #7a2830; color: #ffd7d7; }
+
+  /* T3 captcha wheels */
+  .wheelrow { display: flex; align-items: center; gap: 12px; margin: 8px 0; }
+  .wheel { width: 64px; height: 64px; background: #232f40; border: 2px solid #3c4f68; border-radius: 10px; display: flex; align-items: center; justify-content: center; font-size: 30px; color: #fff; user-select: none; }
+  .wbtn { width: 44px; height: 44px; font-size: 22px; background: #1c2838; color: #9db4cc; border: 1px solid #2c3a4d; border-radius: 8px; cursor: pointer; }
+  #t3-check { font-size: 18px; padding: 8px 22px; background: #22518f; color: #fff; border: none; border-radius: 8px; margin-top: 8px; }
+
+  /* T4 drag exchange */
+  #t4zone { display: flex; gap: 14px; justify-content: center; padding: 14px 0; }
+  .slot { width: 110px; height: 70px; background: #161f2c; border: 3px dashed #3c4f68; border-radius: 10px; display: flex; align-items: center; justify-content: center; font-size: 26px; font-weight: 700; color: #ffb454; }
+  .slot.fill { border-style: solid; border-color: #3fda7c; background: #12261c; }
+  #t4-pieces { display: flex; gap: 12px; justify-content: center; margin-top: 12px; }
+  .piece { padding: 10px 18px; background: #33507a; color: #fff; border-radius: 8px; font-size: 24px; cursor: grab; user-select: none; }
+
+  /* T5 table multi-select + submit */
+  table { border-collapse: collapse; width: 100%; }
+  th, td { border: 1px solid #2c3a4d; padding: 7px 10px; font-size: 16px; text-align: left; }
+  th { background: #1a2433; color: #8fb8dd; }
+  tr.sel td { background: #14324a; color: #fff; }
+  #t5-submit { margin-top: 10px; font-size: 18px; padding: 9px 26px; background: #1e6e42; color: #fff; border: none; border-radius: 8px; }
+
+  #log { font-family: Consolas, monospace; font-size: 14px; line-height: 1.55; color: #93a8bd; margin-top: 6px; }
+  #log .ok { color: #3fda7c; } #log .no { color: #ff7a85; }
+  #final { font-size: 26px; font-weight: 700; text-align: center; padding: 10px; border-radius: 10px; margin-top: 10px; }
+</style>
+</head>
+<body>
+<div class="hdr"><div id="stage">阶段: T0 待开始</div><div id="score">得分 0/100</div></div>
+<div id="taskbar" role="status" aria-label="任务栏">加载中…</div>
+<div class="layout">
+  <div class="panel">
+    <h3>T1 账户表单链（依次完成才解锁登录）</h3>
+    <div class="frow"><label>用户名</label><input id="f-user" aria-label="用户名输入" placeholder="输入 UIVENUS"></div>
+    <div class="frow"><label>邮箱</label><input id="f-mail" aria-label="邮箱输入" placeholder="输入 test@z.ai"></div>
+    <div class="frow"><label>部门</label><select id="f-dept" aria-label="部门选择"><option value="">选择…</option><option>研发部</option><option>市场部</option><option>财务部</option></select></div>
+    <div class="frow"><label>备注</label><input id="f-note" aria-label="备注输入" placeholder="输入任意中文备注"></div>
+    <button id="t1-login" aria-label="登录按钮" disabled>登录（表单完整后解锁）</button>
+    <h3 style="margin-top:16px">T2 小按钮矩阵（按序点击 5 个亮序目标，44px）</h3>
+    <div id="t2grid"></div>
+    <h3 style="margin-top:16px">T3 转盘对齐（用 +/- 把三盘调到 7/3/9）</h3>
+    <div class="wheelrow"><div class="wheel" id="w0" aria-label="转盘一">0</div><button class="wbtn" data-w="0" data-d="1" aria-label="转盘一加">+</button><button class="wbtn" data-w="0" data-d="-1" aria-label="转盘一减">−</button></div>
+    <div class="wheelrow"><div class="wheel" id="w1" aria-label="转盘二">0</div><button class="wbtn" data-w="1" data-d="1" aria-label="转盘二加">+</button><button class="wbtn" data-w="1" data-d="-1" aria-label="转盘二减">−</button></div>
+    <div class="wheelrow"><div class="wheel" id="w2" aria-label="转盘三">0</div><button class="wbtn" data-w="2" data-d="1" aria-label="转盘三加">+</button><button class="wbtn" data-w="2" data-d="-1" aria-label="转盘三减">−</button></div>
+    <button id="t3-check">校验转盘</button>
+  </div>
+  <div class="panel">
+    <h3>T4 拖拽交换（把碎片按 序→拖入槽位 = 金/木/水）</h3>
+    <div id="t4zone">
+      <div class="slot" data-slot="金" aria-label="槽位金">?</div><div class="slot" data-slot="木" aria-label="槽位木">?</div><div class="slot" data-slot="水" aria-label="槽位水">?</div>
+    </div>
+    <div id="t4-pieces"><div class="piece" draggable="true" aria-label="碎片金">金</div><div class="piece" draggable="true" aria-label="碎片木">木</div><div class="piece" draggable="true" aria-label="碎片水">水</div></div>
+    <h3 style="margin-top:16px">T5 多选审批（勾选 张三/李四，备注输入 通过，提交）</h3>
+    <table id="t5table">
+      <tr><th></th><th>姓名</th><th>金额</th><th>状态</th></tr>
+      <tr data-name="张三" aria-label="行张三"><td><input type="checkbox" aria-label="勾选张三"></td><td>张三</td><td>¥1,200</td><td>待审</td></tr>
+      <tr data-name="李四" aria-label="行李四"><td><input type="checkbox" aria-label="勾选李四"></td><td>李四</td><td>¥980</td><td>待审</td></tr>
+      <tr data-name="王五" aria-label="行王五"><td><input type="checkbox" aria-label="勾选王五"></td><td>王五</td><td>¥3,400</td><td>待审</td></tr>
+    </table>
+    <div class="frow" style="margin-top:10px"><label>审批备注</label><input id="t5-note" aria-label="审批备注输入" placeholder="输入 通过"></div>
+    <button id="t5-submit">提交审批</button>
+    <div id="log"></div>
+    <div id="final" aria-label="最终结果"></div>
+  </div>
+</div>
+<script>
+const $ = (id) => document.getElementById(id);
+const stageEl = $("stage"), scoreEl = $("score"), barEl = $("taskbar"), logEl = $("log"), finalEl = $("final");
+let stage = "T0", score = 0;
+const log = (t, cls) => { const d = document.createElement("div"); d.textContent = t; if (cls) d.className = cls; logEl.prepend(d); if (logEl.children.length > 14) logEl.lastChild.remove(); };
+const say = (t) => { barEl.innerHTML = t; };
+const setStage = (s) => { stage = s; stageEl.textContent = `阶段: ${s}`; };
+const addScore = (n) => { score += n; scoreEl.textContent = `得分 ${score}/100`; };
+
+/* ---------- T1 form chain ---------- */
+const fields = { user: $("f-user"), mail: $("f-mail"), dept: $("f-dept"), note: $("f-note") };
+const t1ok = () => fields.user.value.trim() === "UIVENUS" && fields.mail.value.trim() === "test@z.ai" && fields.dept.value !== "" && fields.note.value.trim().length >= 2;
+function t1refresh() {
+  const flags = [
+    ["用户名", fields.user.value.trim() === "UIVENUS"],
+    ["邮箱", fields.mail.value.trim() === "test@z.ai"],
+    ["部门", fields.dept.value !== ""],
+    ["备注", fields.note.value.trim().length >= 2],
+  ];
+  $("t1-login").disabled = !flags.every(([, ok]) => ok);
+  say(flags.map(([n, ok]) => `<span class="${ok ? "done" : "todo"}">${ok ? "✓" : "○"}${n}</span>`).join(" ") + ` <span class="${$("t1-login").disabled ? "todo" : "done"}">| 登录${$("t1-login").disabled ? "锁定" : "解锁"}</span>`);
+}
+Object.values(fields).forEach((f) => f.addEventListener("input", t1refresh));
+fields.dept.addEventListener("change", t1refresh);
+$("t1-login").addEventListener("click", () => {
+  if (stage !== "T1" || !t1ok()) return;
+  setStage("T2"); addScore(20); log("T1 表单链完成 (+20)", "ok");
+  t2spawn();
+});
+
+/* ---------- T2 small-button sequence ---------- */
+const T2_TARGETS = 5;
+let t2seq = [], t2next = 0;
+function t2spawn() {
+  const g = $("t2grid"); g.innerHTML = ""; t2next = 0;
+  const idx = [...Array(40).keys()];
+  for (let i = idx.length - 1; i > 0; i--) { const j = Math.floor(Math.random() * (i + 1)); [idx[i], idx[j]] = [idx[j], idx[i]]; }
+  t2seq = idx.slice(0, T2_TARGETS);
+  const hot = new Set(t2seq);
+  for (let i = 0; i < 40; i++) {
+    const b = document.createElement("button");
+    b.textContent = hot.has(i) ? String(t2seq.indexOf(i) + 1) : "·";
+    b.dataset.i = i;
+    b.addEventListener("click", (e) => {
+      const i2 = +b.dataset.i;
+      if (t2seq[t2next] === i2) {
+        b.classList.add("hit"); t2next++;
+        log(`T2 命中 ${t2next}/${T2_TARGETS}`, "ok");
+        say(`T2 小按钮: <span class="done">已按序命中 ${t2next}/${T2_TARGETS}</span>`);
+        if (t2next === T2_TARGETS && stage === "T2") { setStage("T3"); addScore(20); log("T2 序列点击完成 (+20)", "ok"); t3refresh(); }
+      } else if (b.classList.contains("hit")) { /* ignore repeats */ }
+      else { b.classList.add("wrong"); log("T2 点错目标 (顺序/目标不符)", "no"); }
+    });
+    g.appendChild(b);
+  }
+  say(`T2 小按钮: <span class="todo">按 1→5 顺序点击亮序小按钮（共${T2_TARGETS}个）</span>`);
+}
+
+/* ---------- T3 wheels ---------- */
+const wheels = [0, 0, 0], TARGET = [7, 3, 9];
+function t3refresh() { wheels.forEach((v, i) => ($("w" + i).textContent = v)); }
+document.querySelectorAll(".wbtn").forEach((b) => b.addEventListener("click", () => {
+  const w = +b.dataset.w, d = +b.dataset.d;
+  wheels[w] = (wheels[w] + d + 10) % 10; t3refresh();
+  say(`T3 转盘: ${wheels.join(" / ")} <span class="todo">目标 7 / 3 / 9</span>`);
+}));
+$("t3-check").addEventListener("click", () => {
+  if (stage !== "T3") { log("T3 未到阶段", "no"); return; }
+  if (wheels.every((v, i) => v === TARGET[i])) {
+    setStage("T4"); addScore(20); log("T3 转盘对齐完成 (+20)", "ok");
+    say(`T4 拖拽: <span class="todo">把碎片 金/木/水 依次拖入对应槽位</span>`);
+  } else { log("T3 转盘未对齐", "no"); say(`T3 转盘: ${wheels.join(" / ")} <span class="done">未对齐</span> 目标 7/3/9`); }
+});
+
+/* ---------- T4 drag exchange (click-click fallback for agents) ---------- */
+let carry = null;
+document.querySelectorAll(".piece").forEach((p) => {
+  p.addEventListener("dragstart", (e) => { e.dataTransfer.setData("text/plain", p.textContent); });
+  p.addEventListener("click", () => {
+    carry = p.textContent; p.style.opacity = 0.35;
+    log(`T4 拾起碎片 ${carry}`);
+    say(`T4 拖拽: <span class="active">手持 ${carry}，点击目标槽位放入</span>`);
+  });
+});
+document.querySelectorAll(".slot").forEach((s) => {
+  s.addEventListener("dragover", (e) => e.preventDefault());
+  s.addEventListener("drop", (e) => { e.preventDefault(); place(e.dataTransfer.getData("text/plain"), s); });
+  s.addEventListener("click", () => { if (carry) { place(carry, s); } });
+});
+function place(v, slot) {
+  if (!v) return;
+  if (stage !== "T4") { log("T4 未到阶段", "no"); return; }
+  if (slot.dataset.slot === v) {
+    slot.textContent = v; slot.classList.add("fill");
+    document.querySelectorAll(".piece").forEach((p) => { if (p.textContent === v) { p.style.visibility = "hidden"; } });
+    carry = null; log(`T4 ${v} 入槽正确`, "ok");
+    if (document.querySelectorAll(".slot.fill").length === 3) {
+      setStage("T5"); addScore(20); log("T4 拖拽交换完成 (+20)", "ok");
+      say(`T5 审批: <span class="todo">勾选 张三、李四 → 备注输入 通过 → 提交</span>`);
+    } else {
+      say(`T4 拖拽: <span class="done">${document.querySelectorAll(".slot.fill").length}/3 已放入</span>`);
+    }
+  } else { log(`T4 ${v} 放入 ${slot.dataset.slot} 错误`, "no"); }
+}
+
+/* ---------- T5 approval ---------- */
+// realistic admin-table behavior: clicking the selection CELL toggles the box
+document.querySelectorAll("#t5table input[type=checkbox]").forEach((cb) => {
+  cb.closest("td").addEventListener("click", (e) => {
+    if (e.target !== cb) cb.checked = !cb.checked;
+    cb.closest("tr").classList.toggle("sel", cb.checked);
+    log(`T5 ${cb.closest("tr").dataset.name} ${cb.checked ? "已选" : "取消"}`);
+  });
+});
+$("t5-submit").addEventListener("click", () => {
+  if (stage !== "T5") { log("T5 未到阶段", "no"); return; }
+  const sel = [...document.querySelectorAll("#t5table tr")].filter((tr) => tr.querySelector("input:checked")).map((tr) => tr.dataset.name);
+  const note = $("t5-note").value.trim();
+  const names = sel.join("、");
+  if ((sel.length === 2) && sel.includes("张三") && sel.includes("李四") && note === "通过") {
+    addScore(20); log("T5 审批提交正确 (+20)", "ok");
+    setStage("DONE"); finalEl.textContent = "全部完成 100/100 校对通过";
+    finalEl.style.cssText = "background:#12261c;color:#3fda7c;border:3px solid #3fda7c";
+    say('<span class="done">全部完成 100/100</span>');
+  } else {
+    log(`T5 提交不正确: 选中=[${names}] 备注="${note}"`, "no");
+    say(`T5 审批: <span class="done">选中 ${names || "无"} | 备注 "${note}" — 需 张三+李四 且备注=通过</span>`);
+  }
+});
+
+/* init */
+setStage("T1");
+say('T1 表单链: <span class="todo">用户名=UIVENUS，邮箱=test@z.ai，选部门，填中文备注，然后点登录</span>');
+log("校对靶场 v2 就绪 — 总分100 = T1..T5 各20");
+</script>
+</body>
+</html>

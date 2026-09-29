@@ -46,6 +46,11 @@ computer_action { target, action:{type:"launch_app", app:"C:\Program Files (x86)
 ```
 已验证通过：元素/坐标点击、中英混排输入(你好Abc123世界)、ctrl+a、enter 提交、F5、滚动 600px、win 别名(win+r 打开运行框)。
 
+**进阶靶场 v2**（calibration-v2.html，五关多轮任务，各 20 分）：
+T1 表单链（用户名/邮箱/下拉/中文备注→登录解锁）· T2 44px 小按钮按 1→5 乱序连击 · T3 转盘调 7/3/9（19 次微调）· T4 金木水拖放入槽 · T5 双复选框+备注"通过"+提交 → 100/100。
+关键经验：`<select>` 要点开后用 down+enter 键选；复选框以 DataItem 单元格暴露（点单元格左缘/整格）；元素用 aria-label 命名（Chromium 暴露为 UIA Name）；状态机有阶段门控防跳关。
+驱动器：`node scripts/win-remote/gauntlet-v2-driver.mjs`（实机 6/6 通过）。
+
 ## 自主任务（重要：异步模式）
 
 ```json
